@@ -82,7 +82,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v3.2 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v3.4 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -144,6 +144,7 @@
         <h2>Verbindung</h2>
         <div class="btnrow">
           <button class="pri" onclick="BLE.connect()">CONNECT</button>
+          <button onclick="BLE.connectAll()">CONNECT (ALLE GERÄTE)</button>
           <button onclick="BLE.disconnect()">DISCONNECT</button>
           <button onclick="Codec.sendBattery()">BATTERIE</button>
           <button onclick="Codec.sendSetTime()">ZEIT SETZEN</button>
@@ -488,6 +489,18 @@ const BLE = {
         filters:[{services:[Codec.SVC]},{namePrefix:'R0'},{namePrefix:'COLMI'}],
         optionalServices:[Codec.SVC]
       });
+      this.device.addEventListener('gattserverdisconnected',()=>this.onDrop());
+      this.wantReconnect=true; this.retries=0;
+      await this._open();
+    }catch(e){ this.setState('disconnected'); $('liveStatus').textContent='Abbruch: '+e.message+' – probier CONNECT (ALLE GERÄTE)'; }
+  },
+  /* Fallback v.a. für Bluefy/iOS: manche Web-BLE-Browser zeigen bei Filter-Scans
+     keine Geräte an. acceptAllDevices listet alles – R02_xxxx von Hand auswählen. */
+  async connectAll(){
+    if(!navigator.bluetooth){ $('liveStatus').textContent='⚠ Kein Web Bluetooth in diesem Browser.'; return; }
+    try{
+      this.setState('scanning');
+      this.device = await navigator.bluetooth.requestDevice({acceptAllDevices:true, optionalServices:[Codec.SVC]});
       this.device.addEventListener('gattserverdisconnected',()=>this.onDrop());
       this.wantReconnect=true; this.retries=0;
       await this._open();
