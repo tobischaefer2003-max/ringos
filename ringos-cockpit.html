@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#05070a">
+<title>RingOS // Cockpit</title>
+<!-- PWA-Manifest inline (greift, wenn die Datei gehostet wird, z.B. GitHub Pages) -->
+<link rel="manifest" href='data:application/manifest+json,{"name":"RingOS","short_name":"RingOS","display":"standalone","background_color":"%2305070a","theme_color":"%2305070a","start_url":".","icons":[]}'>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.4/dexie.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#05070a; --panel:#0a0e14; --panel2:#0f141d; --border:#1a2230;
+    --text:#c9d4e3; --bright:#eef4fc; --muted:#5a6678;
+    --cy:#2dd4bf; --gn:#4ade80; --yl:#facc15; --rd:#f87171; --bl:#60a5fa; --pu:#a78bfa;
+    --mono:'Cascadia Code','JetBrains Mono',Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;padding-bottom:64px;min-height:100vh}
+  .app{max-width:860px;margin:0 auto;padding:12px}
+
+  /* Statusbar */
+  .statusbar{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);
+    background:var(--panel);padding:8px 12px;border-radius:6px;margin-bottom:10px;flex-wrap:wrap;gap:6px}
+  .statusbar .logo{font-weight:700;color:var(--bright);letter-spacing:.05em}
+  .logo span{color:var(--cy)}
+  .sb{display:flex;gap:14px;font-size:11px;color:var(--muted);flex-wrap:wrap}
+  .sb b{color:var(--text)}
+  .st-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--rd);margin-right:4px}
+  .st-dot.ready{background:var(--gn);box-shadow:0 0 6px var(--gn)}
+  .st-dot.connecting{background:var(--yl);animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:.3}}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  @media(max-width:640px){.grid,.grid3{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px}
+  .panel h2{font-size:10px;letter-spacing:.15em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;
+    border-bottom:1px solid var(--border);padding-bottom:6px;display:flex;justify-content:space-between}
+  .kv{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
+  .kv .k{color:var(--muted)} .kv .v{color:var(--bright)}
+  .big{font-size:40px;color:var(--bright);font-weight:700;line-height:1.1}
+  .big small{font-size:13px;color:var(--muted);font-weight:400}
+  .unit{color:var(--muted);font-size:11px}
+
+  button{font-family:var(--mono);font-size:12px;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:4px;padding:8px 12px;cursor:pointer}
+  button:hover{border-color:var(--cy);color:var(--bright)}
+  button.pri{background:rgba(45,212,191,.12);border-color:var(--cy);color:var(--cy)}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  input,select{font-family:var(--mono);font-size:12px;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:4px;padding:8px;color-scheme:dark}
+  input:focus{outline:none;border-color:var(--cy)}
+
+  .score{font-size:52px;font-weight:700;line-height:1}
+  .formula{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:8px;
+    font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;white-space:pre-wrap}
+  .tagbtns{display:flex;gap:6px;flex-wrap:wrap}
+  .tagbtns button.on{border-color:var(--pu);color:var(--pu)}
+
+  .log{background:#04060a;border:1px solid var(--border);border-radius:4px;padding:8px;height:220px;
+    overflow-y:auto;font-size:11px;line-height:1.7;white-space:pre-wrap;word-break:break-all}
+  .log .tx{color:var(--cy)} .log .rx{color:var(--gn)} .log .err{color:var(--rd)} .log .info{color:var(--muted)}
+  .chartbox{position:relative;height:190px}
+  .note{font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px}
+  .warn{color:var(--yl)}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  td,th{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left}
+  th{color:var(--muted);font-weight:400}
+  .ok{color:var(--gn)} .unv{color:var(--yl)}
+
+  nav{position:fixed;bottom:0;left:0;right:0;background:rgba(10,14,20,.97);border-top:1px solid var(--border);z-index:10}
+  .navin{max-width:860px;margin:0 auto;display:flex}
+  .tab{flex:1;background:none;border:none;border-radius:0;padding:12px 2px;color:var(--muted);font-size:10px;letter-spacing:.1em}
+  .tab.on{color:var(--cy);border-top:2px solid var(--cy)}
+  .view{display:none}.view.on{display:block}
+  .statusline{font-size:11px;color:var(--cy);min-height:15px;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="statusbar">
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v3.2 // cockpit</span></div>
+    <div class="sb">
+      <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
+      <span>BAT <b id="stBat">--%</b></span>
+      <span>DEV <b id="stDev">–</b></span>
+      <span>DB <b id="stDb">0</b> rows</span>
+    </div>
+  </div>
+
+  <!-- ============ COCKPIT ============ -->
+  <section class="view on" id="v-cockpit">
+    <div class="grid">
+      <div class="panel">
+        <h2>Readiness</h2>
+        <div class="score" id="rdScore">--</div>
+        <div class="note" id="rdLabel">Noch keine Baseline. Sync ausführen oder Simulator nutzen (Tab DEBUG).</div>
+        <div class="formula" id="rdFormula">READINESS = 50
++ 2.0 × (RHR_baseline − RHR_heute)     [Ruhepuls vs. 30d-Ø]
++ 0.5 × (HRV_heute − HRV_baseline)     [RMSSD-Näherung]
++ 0.15 × (Schlaf_min − 420) / 6        [vs. 7h-Ziel]
+− 3.0 × Anomalie-Flags                 [z-Score > 2σ]
+→ geklemmt auf 0–100. Keine Blackbox.</div>
+      </div>
+      <div class="panel">
+        <h2>Heute</h2>
+        <div class="kv"><span class="k">Ruhepuls (Nacht-Minimum-Ø)</span><span class="v" id="cRhr">–</span></div>
+        <div class="kv"><span class="k">HRV-Index (RMSSD~)</span><span class="v" id="cHrv">–</span></div>
+        <div class="kv"><span class="k">Schlaf (Heuristik)</span><span class="v" id="cSleep">–</span></div>
+        <div class="kv"><span class="k">Schritte</span><span class="v" id="cSteps">–</span></div>
+        <div class="kv"><span class="k">Kalorien</span><span class="v" id="cCal">–</span></div>
+        <div class="kv"><span class="k">SpO2 (letzte)</span><span class="v" id="cSpo2">–</span></div>
+        <div class="kv"><span class="k">Anomalien vs. Baseline</span><span class="v" id="cAnom">–</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Tages-HR (Ring-Log, 5-Min-Raster) <span id="cockpitDate"></span></h2>
+      <div class="chartbox"><canvas id="chDay"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Events taggen (für Korrelation)</h2>
+      <div class="tagbtns" id="tagBtns"></div>
+      <div class="statusline" id="tagStatus"></div>
+    </div>
+  </section>
+
+  <!-- ============ LIVE ============ -->
+  <section class="view" id="v-live">
+    <div class="grid">
+      <div class="panel">
+        <h2>Realtime HR</h2>
+        <div class="big"><span id="liveHr">--</span> <small>bpm</small></div>
+        <div class="btnrow">
+          <button class="pri" id="btnLiveHr" onclick="UI.toggleLive(1)">HR-Stream</button>
+          <button id="btnLiveSpo2" onclick="UI.toggleLive(3)">SpO2-Messung</button>
+        </div>
+        <div class="kv" style="margin-top:8px"><span class="k">Fenster min/Ø/max</span><span class="v" id="liveStats">–</span></div>
+        <div class="kv"><span class="k">Samples</span><span class="v" id="liveCount">0</span></div>
+      </div>
+      <div class="panel">
+        <h2>Verbindung</h2>
+        <div class="btnrow">
+          <button class="pri" onclick="BLE.connect()">CONNECT</button>
+          <button onclick="BLE.disconnect()">DISCONNECT</button>
+          <button onclick="Codec.sendBattery()">BATTERIE</button>
+          <button onclick="Codec.sendSetTime()">ZEIT SETZEN</button>
+        </div>
+        <div class="note">State-Machine: <b id="smState">disconnected</b><br>
+        Auto-Reconnect: <span id="smRetry">aus</span></div>
+        <div class="statusline" id="liveStatus"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Live-Chart (rollendes Fenster, 120 Samples)</h2>
+      <div class="chartbox"><canvas id="chLive"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ============ SYNC ============ -->
+  <section class="view" id="v-sync">
+    <div class="panel">
+      <h2>Ring-Logs abholen → IndexedDB (idempotent)</h2>
+      <div class="btnrow">
+        <button class="pri" onclick="Sync.syncDay(0)">HEUTE SYNCEN</button>
+        <button onclick="Sync.syncDays(7)">LETZTE 7 TAGE</button>
+        <button onclick="Sync.syncSteps()">SCHRITTE HEUTE</button>
+      </div>
+      <div class="btnrow">
+        <button onclick="Codec.readHrLogSettings()">LOGGING-STATUS LESEN</button>
+        <button class="pri" onclick="Codec.setHrLogSettings(true,5)">AUTO-LOGGING AN (5 MIN)</button>
+        <button onclick="Codec.setHrLogSettings(true,15)">AN (15 MIN, SPART AKKU)</button>
+        <button onclick="Codec.setHrLogSettings(false,60)">AUS</button>
+      </div>
+      <div class="note">Ab Werk ist das automatische Puls-Logging oft deaktiviert – einmal aktivieren,
+      dann misst der Ring selbstständig. 5 Min = dichteste Daten (beste Schlaf-Analyse), 15 Min = längerer Akku.</div>
+      <div class="note">Der Ring misst autonom alle 5 Min (288 Werte/Tag) und speichert onboard –
+      du musst die App nicht offen haben. Sync holt die Logs und merged per Timestamp-Key (keine Duplikate).</div>
+      <div class="statusline" id="syncStatus"></div>
+    </div>
+    <div class="panel">
+      <h2>Sync-Protokoll</h2>
+      <div class="log" id="syncLog"></div>
+    </div>
+  </section>
+
+  <!-- ============ ANALYSE ============ -->
+  <section class="view" id="v-analyse">
+    <div class="panel">
+      <h2>Trend <select id="trendRange" onchange="UI.renderAnalyse()">
+        <option value="7">7 Tage</option><option value="30" selected>30 Tage</option><option value="90">90 Tage</option>
+      </select></h2>
+      <div class="chartbox"><canvas id="chTrend"></canvas></div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>Anomalien (|z| > 2 vs. persönliche Baseline)</h2>
+        <div id="anomList" class="note">–</div>
+      </div>
+      <div class="panel">
+        <h2>Tag-Korrelation (Δ Folgetag vs. Baseline)</h2>
+        <div id="corrList" class="note">–</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DATEN ============ -->
+  <section class="view" id="v-daten">
+    <div class="panel">
+      <h2>Datenhoheit</h2>
+      <div class="btnrow">
+        <button class="pri" onclick="Store.exportJSON()">EXPORT JSON</button>
+        <button onclick="Store.exportCSV()">EXPORT CSV (HR)</button>
+        <button onclick="document.getElementById('impFile').click()">IMPORT JSON</button>
+        <input type="file" id="impFile" accept=".json" style="display:none" onchange="Store.importJSON(this)">
+        <button onclick="Store.wipe()" style="border-color:var(--rd);color:var(--rd)">DB LÖSCHEN</button>
+      </div>
+      <div class="note">Alles liegt in IndexedDB in diesem Browser-Profil. Kein Server, kein Account.
+      Export regelmäßig sichern – Browserdaten löschen = Daten weg.</div>
+      <div class="statusline" id="dataStatus"></div>
+    </div>
+    <div class="panel"><h2>DB-Inhalt</h2><div id="dbStats" class="note">–</div></div>
+  </section>
+
+  <!-- ============ DEBUG ============ -->
+  <section class="view" id="v-debug">
+    <div class="panel">
+      <h2>Protokoll-Referenz</h2>
+      <table>
+        <tr><th>Cmd</th><th>Funktion</th><th>Status</th></tr>
+        <tr><td>0x01</td><td>Zeit setzen (BCD, UTC)</td><td class="ok">verifiziert</td></tr>
+        <tr><td>0x03</td><td>Batterie</td><td class="ok">verifiziert</td></tr>
+        <tr><td>0x15</td><td>HR-Log (Tag, 288×5min)</td><td class="ok">verifiziert</td></tr>
+        <tr><td>0x43</td><td>Schritte/Sport (Tag)</td><td class="ok">verifiziert</td></tr>
+        <tr><td>0x69/0x6A</td><td>Realtime Start/Stop (kind 1=HR, 3=SpO2)</td><td class="ok">verifiziert</td></tr>
+        <tr><td>0x69 kind 10</td><td>Realtime HRV</td><td class="unv">unverifiziert</td></tr>
+        <tr><td>0xBC?</td><td>Schlaf-Logs</td><td class="unv">unverifiziert → hier erforschen</td></tr>
+        <tr><td>–</td><td>Raw PPG/Accel</td><td class="unv">nur ATC_RF03-Firmware</td></tr>
+      </table>
+    </div>
+    <div class="panel">
+      <h2>Hex-Konsole (Raw-Frames senden)</h2>
+      <div class="btnrow">
+        <input id="hexIn" placeholder="z.B. BC 27  (Checksumme wird ergänzt)" style="flex:1;min-width:200px">
+        <button class="pri" onclick="Dbg.sendHex()">SEND</button>
+        <button onclick="Dbg.recording=!Dbg.recording;this.textContent=Dbg.recording?'REC ●':'REC'">REC</button>
+        <button onclick="Dbg.exportLog()">LOG EXPORT</button>
+        <button onclick="document.getElementById('dbgLog').innerHTML=''">CLEAR</button>
+      </div>
+      <div class="log" id="dbgLog" style="margin-top:8px"></div>
+      <div class="note warn">Vorsicht: unbekannte Commands können den Ring rebooten. Kaputtmachen kannst du per BLE aber praktisch nichts – Firmware-Flash läuft über einen anderen Kanal.</div>
+    </div>
+    <div class="panel">
+      <h2>Simulator (zum Testen ohne Ring)</h2>
+      <div class="btnrow">
+        <button onclick="Sim.live()">LIVE-SIM</button>
+        <button onclick="Sim.fillHistory(30)">30 TAGE HISTORIE GENERIEREN</button>
+      </div>
+      <div class="statusline" id="simStatus"></div>
+    </div>
+  </section>
+</div>
+
+<nav><div class="navin">
+  <button class="tab on" data-v="cockpit" onclick="UI.tab('cockpit')">COCKPIT</button>
+  <button class="tab" data-v="live" onclick="UI.tab('live')">LIVE</button>
+  <button class="tab" data-v="sync" onclick="UI.tab('sync')">SYNC</button>
+  <button class="tab" data-v="analyse" onclick="UI.tab('analyse')">ANALYSE</button>
+  <button class="tab" data-v="daten" onclick="UI.tab('daten')">DATEN</button>
+  <button class="tab" data-v="debug" onclick="UI.tab('debug')">DEBUG</button>
+</div></nav>
+
+<script>
+'use strict';
+/* =====================================================================
+   RingOS v3 – Module: BLE → Codec → Store → Analytics → UI
+   Protokoll: reverse-engineered, Quelle tahnok/colmi_r02_client (MIT)
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const hex = b => Array.from(b).map(x=>x.toString(16).padStart(2,'0')).join(' ');
+const dayKey = (d=new Date()) => d.toISOString().slice(0,10);
+
+/* ============ MODUL: data-store (Dexie / IndexedDB) ============ */
+const db = new Dexie('ringos');
+db.version(1).stores({
+  hr:      'ts',            // {ts, bpm, src:'log'|'live'}
+  spo2:    'ts',            // {ts, pct}
+  steps:   '[day+idx]',     // {day, idx, steps, cal, dist}
+  sleep:   'day',           // {day, minutes, phases:{deep,light,awake}}
+  battery: 'ts',            // {ts, pct, charging}
+  events:  '++id, day',     // {id, day, tag}
+  daily:   'day'            // {day, rhr, hrv, sleepMin, readiness, steps, cal}
+});
+
+const Store = {
+  async putHrBulk(rows){ await db.hr.bulkPut(rows); UI.dbCount(); },       // bulkPut = idempotent (Key ts)
+  async exportJSON(){
+    const dump = {};
+    for(const t of ['hr','spo2','steps','sleep','battery','events','daily']) dump[t] = await db.table(t).toArray();
+    Store._download(JSON.stringify(dump,null,1), 'ringos-export-'+dayKey()+'.json', 'application/json');
+    $('dataStatus').textContent = 'Export erstellt.';
+  },
+  async exportCSV(){
+    const rows = await db.hr.orderBy('ts').toArray();
+    const csv = 'timestamp_iso,bpm,src\n' + rows.map(r=>new Date(r.ts).toISOString()+','+r.bpm+','+(r.src||'')).join('\n');
+    Store._download(csv, 'ringos-hr-'+dayKey()+'.csv', 'text/csv');
+    $('dataStatus').textContent = rows.length+' HR-Zeilen exportiert.';
+  },
+  async importJSON(input){
+    const f = input.files[0]; if(!f) return;
+    const dump = JSON.parse(await f.text());
+    for(const t of Object.keys(dump)) if(db[t]) await db.table(t).bulkPut(dump[t]);
+    $('dataStatus').textContent = 'Import gemerged.';
+    UI.dbCount(); UI.renderCockpit(); UI.renderAnalyse();
+  },
+  async wipe(){
+    if(!confirm('Wirklich ALLE lokalen Daten löschen?')) return;
+    await Promise.all(['hr','spo2','steps','sleep','battery','events','daily'].map(t=>db.table(t).clear()));
+    $('dataStatus').textContent='DB geleert.'; UI.dbCount(); UI.renderCockpit();
+  },
+  _download(content, name, mime){
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content],{type:mime})); a.download = name; a.click();
+  }
+};
+
+/* ============ MODUL: protocol-codec ============ */
+const Codec = {
+  SVC:'6e40fff0-b5a3-f393-e0a9-e50e24dcca9e',
+  RX:'6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+  TX:'6e400003-b5a3-f393-e0a9-e50e24dcca9e',
+
+  /* 16-Byte-Frame: [cmd, ...payload(14), checksum]
+     checksum = sum(bytes 0..14) & 0xFF  (mod 256!)
+     Achtung: das README von colmi_r02_client sagt "modulo 255" – gegen 8 dokumentierte
+     Referenzpakete verifiziert ist es aber mod 256. Bei Summen < 255 identisch,
+     bei größeren Payloads (Timestamps!) macht es den Unterschied. */
+  make(cmd, sub=[]){
+    const p = new Uint8Array(16);
+    p[0]=cmd; sub.forEach((b,i)=>p[1+i]=b&0xff);
+    let s=0; for(let i=0;i<15;i++) s+=p[i];
+    p[15]=s&0xff; return p;
+  },
+  bcd(n){ return ((Math.floor(n/10))<<4)|(n%10); },
+  unbcd(b){ return ((b>>4)&15)*10+(b&15); },
+
+  async sendBattery(){ await BLE.write(Codec.make(0x03)); },
+  async sendSetTime(){
+    /* CMD 0x01: BCD [yy mm dd hh mm ss] in UTC + 0x01 (Sprache en) – wichtig für korrekte Log-Zeiten */
+    const d = new Date();
+    await BLE.write(Codec.make(0x01,[
+      Codec.bcd(d.getUTCFullYear()%100), Codec.bcd(d.getUTCMonth()+1), Codec.bcd(d.getUTCDate()),
+      Codec.bcd(d.getUTCHours()), Codec.bcd(d.getUTCMinutes()), Codec.bcd(d.getUTCSeconds()), 1]));
+    Dbg.log('info','Zeit gesetzt (UTC). Antwort ist Capability-Bitfeld, wird ignoriert.');
+  },
+  /* CMD 0x16 – periodisches HR-Logging (verifiziert):
+     lesen: [0x16, 0x01] · schreiben: [0x16, 0x02, enabled(1=an/2=aus), intervall_minuten]
+     Antwort: Byte2 = enabled (1/2), Byte3 = Intervall in Minuten */
+  async readHrLogSettings(){ await BLE.write(Codec.make(0x16,[1])); },
+  async setHrLogSettings(on,interval){
+    await BLE.write(Codec.make(0x16,[2, on?1:2, interval]));
+    Dbg.log('info','HR-Logging '+(on?'AN, alle '+interval+' Min':'AUS')+' gesendet – Status wird gegengelesen…');
+    setTimeout(()=>Codec.readHrLogSettings().catch(()=>{}),600);
+  },
+  async rtStart(kind){ await BLE.write(Codec.make(0x69,[kind,1])); },
+  async rtContinue(kind){ await BLE.write(Codec.make(0x69,[kind,3])); },
+  async rtStop(kind){ await BLE.write(Codec.make(0x6a,[kind,0,0])); },
+  async reqHrLog(dateMidnightLocal){
+    /* CMD 0x15 + Unix-Timestamp (LE u32) der Ziel-Mitternacht */
+    const ts = Math.floor(dateMidnightLocal.getTime()/1000);
+    await BLE.write(Codec.make(0x15,[ts&0xff,(ts>>8)&0xff,(ts>>16)&0xff,(ts>>24)&0xff]));
+  },
+  async reqSteps(dayOffset=0){
+    /* CMD 0x43 + [offset, 0F 00 5F 01] (konstante Bytes lt. RE, Bedeutung teils unklar) */
+    await BLE.write(Codec.make(0x43,[dayOffset,0x0f,0x00,0x5f,0x01]));
+  },
+
+  /* ---- Multi-Packet-Parser: HR-Log (Port von HeartRateLogParser) ---- */
+  hrParser:{
+    reset(){ this.raw=[]; this.ts=null; this.size=0; this.idx=0; this.onDone=null; },
+    parse(p){
+      const sub=p[1];
+      if(sub===255){ this.reset(); return {noData:true}; }
+      if(sub===0){ this.size=p[2]; this.raw=new Array(this.size*13).fill(0); this.idx=0; return null; }
+      if(sub===1){
+        const ts=(p[2]|(p[3]<<8)|(p[4]<<16)|(p[5]<<24))>>>0;
+        this.ts=new Date(ts*1000);
+        for(let i=0;i<9;i++) this.raw[i]=p[6+i];
+        this.idx=9; return null;
+      }
+      for(let i=0;i<13;i++) this.raw[this.idx+i]=p[2+i];
+      this.idx+=13;
+      if(sub===this.size-1){
+        const out={ts:this.ts, rates:this.raw.slice(0,288)};
+        this.reset(); return out;
+      }
+      return null;
+    }
+  },
+  /* ---- Multi-Packet-Parser: Schritte (Port von SportDetailParser) ---- */
+  stepParser:{
+    reset(){ this.newCal=false; this.first=true; this.details=[]; },
+    parse(p){
+      if(this.first && p[1]===255){ this.reset(); return {noData:true}; }
+      if(this.first && p[1]===0xf0){ if(p[3]===1) this.newCal=true; this.first=false; return null; }
+      this.first=false;
+      const d={
+        year:Codec.unbcd(p[1])+2000, month:Codec.unbcd(p[2]), day:Codec.unbcd(p[3]),
+        timeIndex:p[4],
+        cal:(p[7]|(p[8]<<8))*(this.newCal?10:1),
+        steps:p[9]|(p[10]<<8),
+        dist:p[11]|(p[12]<<8)
+      };
+      this.details.push(d);
+      if(p[5]===p[6]-1){ const out=this.details; this.reset(); return out; }
+      return null;
+    }
+  },
+
+  /* ---- Dispatcher für eingehende Frames ---- */
+  onFrame(p){
+    if(Dbg.recording||true) Dbg.log('rx','« '+hex(p));
+    switch(p[0]){
+      case 0x03:
+        $('stBat').textContent=p[1]+'%'+(p[2]?'⚡':'');
+        db.battery.put({ts:Date.now(),pct:p[1],charging:!!p[2]});
+        break;
+      case 0x69:{
+        const kind=p[1],err=p[2],val=p[3];
+        /* Undokumentiert (eigene RE-Beobachtung, R02-Firmware 2026):
+           Byte 7-8 (LE16) enthält den Puls ×10 (z.B. 0x02E7=743 → 74,3 bpm).
+           Byte 3 (dokumentierter Platz) bleibt bei dieser Firmware 0.
+           Fallback-Logik: Byte 3 wenn belegt, sonst Byte 7-8 ÷ 10 im Plausibilitätsfenster. */
+        const raw=p[7]|(p[8]<<8);
+        if(err!==0){ Dbg.log('err','Realtime-Error kind='+kind+' code='+err); $('liveStatus').textContent='Ring-Fehler '+err+' – sitzt der Ring eng am Finger?'; break; }
+        if(kind===1){
+          if(val>0) Live.push(val);
+          else if(raw>=300&&raw<=2200) Live.push(Math.round(raw/10));   // 30–220 bpm plausibel
+          else if(raw>0 && Date.now()-Live.lastPush>10000)              // nur meckern, wenn >10s nichts kam
+            $('liveStatus').textContent='Sensor sucht Signal… (raw='+raw+') Ring eng an den Finger, ruhig halten.';
+        }
+        if(kind===3&&val>0){ $('cSpo2').textContent=val+'%'; db.spo2.put({ts:Date.now(),pct:val}); }
+        break;
+      }
+      case 0x16:{
+        const on=p[2]===1, iv=p[3];
+        const msg='Auto-Logging: '+(on?'AN, alle '+iv+' Min ✓':'AUS ✗');
+        $('syncStatus').textContent=msg; Sync.log(msg);
+        break;
+      }
+      case 0x15:{
+        const r=Codec.hrParser.parse(p);
+        if(r&&r.noData) Sync.done('Keine HR-Daten für diesen Tag.');
+        else if(r) Sync.onHrLog(r);
+        break;
+      }
+      case 0x43:{
+        const r=Codec.stepParser.parse(p);
+        if(r&&r.noData) Sync.done('Keine Schritt-Daten.');
+        else if(Array.isArray(r)) Sync.onSteps(r);
+        break;
+      }
+      default:
+        Dbg.log('info','Unbekanntes Frame (Cmd 0x'+p[0].toString(16)+') – interessant für Reverse Engineering!');
+    }
+  }
+};
+Codec.hrParser.reset(); Codec.stepParser.reset();
+
+/* ============ MODUL: ble-transport (State-Machine + Reconnect) ============ */
+const BLE = {
+  state:'disconnected', device:null, rx:null, wantReconnect:false, retries:0,
+  setState(s){
+    this.state=s; $('smState').textContent=s;
+    $('stState').textContent=s.toUpperCase();
+    $('stDot').className='st-dot '+(s==='ready'?'ready':s==='connecting'?'connecting':'');
+  },
+  async connect(){
+    if(!navigator.bluetooth){
+      $('liveStatus').textContent='⚠ Kein Web Bluetooth. Desktop: Chrome/Edge. iPhone: Bluefy-Browser (App Store).';
+      return;
+    }
+    try{
+      this.setState('scanning');
+      this.device = await navigator.bluetooth.requestDevice({
+        filters:[{services:[Codec.SVC]},{namePrefix:'R0'},{namePrefix:'COLMI'}],
+        optionalServices:[Codec.SVC]
+      });
+      this.device.addEventListener('gattserverdisconnected',()=>this.onDrop());
+      this.wantReconnect=true; this.retries=0;
+      await this._open();
+    }catch(e){ this.setState('disconnected'); $('liveStatus').textContent='Abbruch: '+e.message; }
+  },
+  async _open(){
+    this.setState('connecting');
+    const server = await this.device.gatt.connect();
+    const svc = await server.getPrimaryService(Codec.SVC);
+    this.rx = await svc.getCharacteristic(Codec.RX);
+    const tx = await svc.getCharacteristic(Codec.TX);
+    await tx.startNotifications();
+    tx.addEventListener('characteristicvaluechanged', ev=>Codec.onFrame(new Uint8Array(ev.target.value.buffer)));
+    this.setState('ready');
+    $('stDev').textContent=this.device.name||'?';
+    $('liveStatus').textContent='Verbunden ✓';
+    await Codec.sendBattery();
+    await Codec.sendSetTime();     // Ring-Uhr bei jedem Connect stellen → Logs stimmen
+  },
+  onDrop(){
+    this.setState('disconnected');
+    if(!this.wantReconnect){ return; }
+    const delay=Math.min(30000, 1000*Math.pow(2,this.retries++));   // Exponential Backoff 1s→30s
+    $('smRetry').textContent='Versuch '+this.retries+' in '+(delay/1000)+'s';
+    setTimeout(async()=>{
+      if(!this.wantReconnect) return;
+      try{ await this._open(); $('smRetry').textContent='ok'; this.retries=0; }
+      catch(e){ this.onDrop(); }
+    }, delay);
+  },
+  async disconnect(){
+    this.wantReconnect=false;
+    if(this.device&&this.device.gatt.connected) this.device.gatt.disconnect();
+    this.setState('disconnected'); $('smRetry').textContent='aus';
+  },
+  async write(pkt){
+    Dbg.log('tx','» '+hex(pkt));
+    if(Sim.active) return Sim.handle(pkt);      // Simulator fängt Frames ab
+    if(this.state!=='ready') throw new Error('BLE nicht ready');
+    await this.rx.writeValue(pkt);
+  }
+};
+
+/* ============ MODUL: sync ============ */
+const Sync = {
+  queue:[], busy:false,
+  log(m){ const el=$('syncLog'); el.innerHTML+='<span class="info">'+new Date().toLocaleTimeString()+'</span> '+m+'\n'; el.scrollTop=el.scrollHeight; },
+  done(m){ this.busy=false; $('syncStatus').textContent=m; this.log(m); this._next(); },
+  async syncDay(offset){
+    const d=new Date(); d.setDate(d.getDate()-offset); d.setHours(0,0,0,0);
+    this.queue.push(async()=>{
+      this.log('HR-Log anfordern: '+dayKey(d));
+      Codec.hrParser.reset();
+      await Codec.reqHrLog(d);
+    });
+    this._next();
+  },
+  syncDays(n){ for(let i=n-1;i>=0;i--) this.syncDay(i); },
+  syncSteps(){
+    this.queue.push(async()=>{ this.log('Schritte anfordern (heute)'); Codec.stepParser.reset(); await Codec.reqSteps(0); });
+    this._next();
+  },
+  async _next(){
+    if(this.busy||!this.queue.length) return;
+    this.busy=true;
+    try{ await this.queue.shift()(); }
+    catch(e){ this.done('Fehler: '+e.message); }
+  },
+  async onHrLog(r){
+    /* 288 Werte à 5 Min ab Mitternacht (Ring-TS). 0 = keine Messung. */
+    const base=r.ts.getTime(), rows=[];
+    r.rates.forEach((bpm,i)=>{ if(bpm>0) rows.push({ts:base+i*5*60000, bpm, src:'log'}); });
+    await Store.putHrBulk(rows);
+    this.log('→ '+rows.length+' Messpunkte gespeichert ('+dayKey(r.ts)+')');
+    await Analytics.recomputeDay(dayKey(r.ts));
+    UI.renderCockpit(); UI.renderAnalyse();
+    this.done('Sync ok: '+dayKey(r.ts));
+  },
+  async onSteps(details){
+    const day=dayKey(); let steps=0,cal=0;
+    for(const d of details){ steps+=d.steps; cal+=d.cal;
+      await db.steps.put({day, idx:d.timeIndex, steps:d.steps, cal:d.cal, dist:d.dist}); }
+    const daily=await db.daily.get(day)||{day};
+    daily.steps=steps; daily.cal=Math.round(cal/1000);
+    await db.daily.put(daily);
+    this.done('Schritte: '+steps+' / '+Math.round(cal/1000)+' kcal');
+    UI.renderCockpit();
+  }
+};
+
+/* ============ MODUL: analytics ============ */
+const Analytics = {
+  /* Schlaf-Heuristik: längstes nächtliches Fenster (20:00–12:00) mit HR < Tagesmittel−10%
+     und lückenloser Messung. Phasen: deep = HR < nightMin+4, sonst light. Transparent, kein ML. */
+  async recomputeDay(day){
+    const start=new Date(day+'T00:00:00').getTime(), end=start+86400000;
+    const rows=await db.hr.where('ts').between(start-4*3600000,end).toArray();   // ab 20:00 Vortag
+    if(rows.length<20) return;
+    const bpms=rows.map(r=>r.bpm);
+    const mean=bpms.reduce((a,b)=>a+b,0)/bpms.length;
+    // Nachtfenster
+    const night=rows.filter(r=>r.bpm<mean*0.9);
+    let sleepMin=0, deep=0;
+    if(night.length>=12){                        // >= 1h unter Schwelle
+      sleepMin=night.length*5;
+      const nightMin=Math.min(...night.map(r=>r.bpm));
+      deep=night.filter(r=>r.bpm<nightMin+4).length*5;
+      await db.sleep.put({day, minutes:sleepMin, phases:{deep, light:sleepMin-deep}});
+    }
+    // RHR: Mittel der 10 niedrigsten Werte
+    const sorted=[...bpms].sort((a,b)=>a-b);
+    const rhr=Math.round(sorted.slice(0,10).reduce((a,b)=>a+b,0)/Math.min(10,sorted.length));
+    // HRV-Näherung: RMSSD über RR aus 5-Min-BPM der Nacht (grob! Trend-Indikator, kein Medizinwert)
+    let hrv=null;
+    if(night.length>3){
+      const rr=night.map(r=>60000/r.bpm); let sq=0;
+      for(let i=1;i<rr.length;i++) sq+=(rr[i]-rr[i-1])**2;
+      hrv=Math.round(Math.sqrt(sq/(rr.length-1)));
+    }
+    const daily=await db.daily.get(day)||{day};
+    Object.assign(daily,{rhr,hrv,sleepMin});
+    daily.readiness=await this.readiness(day,daily);
+    await db.daily.put(daily);
+  },
+  async baseline(day,field,n=30){
+    const all=await db.daily.where('day').below(day).reverse().limit(n).toArray();
+    const vals=all.map(d=>d[field]).filter(v=>v!=null);
+    if(vals.length<3) return null;
+    const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const sd=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length)||1;
+    return {mean,sd,n:vals.length};
+  },
+  async readiness(day,d){
+    const bR=await this.baseline(day,'rhr'), bH=await this.baseline(day,'hrv');
+    let score=50, anomalies=0;
+    if(bR&&d.rhr!=null){ score+=2.0*(bR.mean-d.rhr); if(Math.abs(d.rhr-bR.mean)/bR.sd>2) anomalies++; }
+    if(bH&&d.hrv!=null){ score+=0.5*(d.hrv-bH.mean); if(Math.abs(d.hrv-bH.mean)/bH.sd>2) anomalies++; }
+    if(d.sleepMin!=null) score+=0.15*(d.sleepMin-420)/6;
+    score-=3*anomalies;
+    return Math.max(0,Math.min(100,Math.round(score)));
+  },
+  async anomalies(days=30){
+    const list=[], all=await db.daily.orderBy('day').reverse().limit(days).toArray();
+    for(const d of all){
+      for(const f of ['rhr','hrv','sleepMin']){
+        const b=await this.baseline(d.day,f);
+        if(b&&d[f]!=null){
+          const z=(d[f]-b.mean)/b.sd;
+          if(Math.abs(z)>2) list.push(d.day+' · '+f+' = '+d[f]+' (z='+z.toFixed(1)+')');
+        }
+      }
+    }
+    return list;
+  },
+  async correlations(){
+    const evs=await db.events.toArray(), out={};
+    const bR=await this.baseline('9999','rhr');
+    if(!bR) return [];
+    for(const e of evs){
+      const next=new Date(e.day); next.setDate(next.getDate()+1);
+      const d=await db.daily.get(dayKey(next));
+      if(d&&d.rhr!=null){
+        out[e.tag]=out[e.tag]||[];
+        out[e.tag].push(d.rhr-bR.mean);
+      }
+    }
+    return Object.entries(out).map(([tag,ds])=>({
+      tag, n:ds.length, dRhr:(ds.reduce((a,b)=>a+b,0)/ds.length).toFixed(1)
+    }));
+  }
+};
+
+/* ============ MODUL: live ============ */
+const Live = {
+  active:null, buf:[], contIv:null, chart:null, lastPush:0,
+  push(bpm){
+    this.lastPush=Date.now();
+    $('liveStatus').textContent='Stream aktiv ✓';
+    this.buf.push(bpm); if(this.buf.length>120) this.buf.shift();
+    $('liveHr').textContent=bpm;
+    $('liveCount').textContent=this.buf.length;
+    $('liveStats').textContent=Math.min(...this.buf)+' / '+Math.round(this.buf.reduce((a,b)=>a+b,0)/this.buf.length)+' / '+Math.max(...this.buf);
+    db.hr.put({ts:Date.now(), bpm, src:'live'});
+    if(this.chart){ this.chart.data.labels=this.buf.map((_,i)=>i); this.chart.data.datasets[0].data=[...this.buf]; this.chart.update('none'); }
+  },
+  async toggle(kind){
+    if(this.active===kind){
+      clearInterval(this.contIv); await Codec.rtStop(kind); this.active=null;
+      $('btnLiveHr').textContent='HR-Stream';
+      return;
+    }
+    if(this.active!=null){ clearInterval(this.contIv); await Codec.rtStop(this.active); }
+    this.active=kind;
+    await Codec.rtStart(kind);
+    this.contIv=setInterval(()=>Codec.rtContinue(kind).catch(()=>{}),2000);
+    if(kind===1) $('btnLiveHr').textContent='STOP';
+    if(kind===3) setTimeout(async()=>{ if(this.active===3){ clearInterval(this.contIv); await Codec.rtStop(3); this.active=null; } },35000);
+  }
+};
+
+/* ============ MODUL: debug ============ */
+const Dbg = {
+  recording:false, lines:[],
+  log(cls,msg){
+    this.lines.push('['+new Date().toISOString()+'] '+msg);
+    const el=$('dbgLog');
+    el.innerHTML+='<span class="'+cls+'">'+msg+'</span>\n';
+    if(el.childNodes.length>400) el.innerHTML=el.innerHTML.slice(-30000);
+    el.scrollTop=el.scrollHeight;
+  },
+  async sendHex(){
+    const raw=$('hexIn').value.trim().split(/[\s,]+/).map(x=>parseInt(x,16)).filter(x=>!isNaN(x));
+    if(!raw.length) return;
+    await BLE.write(Codec.make(raw[0], raw.slice(1)));
+  },
+  exportLog(){ Store._download(this.lines.join('\n'),'ringos-debug.log','text/plain'); }
+};
+
+/* ============ MODUL: simulator ============ */
+const Sim = {
+  active:false, liveIv:null,
+  live(){
+    this.active=!this.active;
+    $('simStatus').textContent=this.active?'Simulator AKTIV – CONNECT/Streams laufen gegen Fake-Ring.':'Simulator aus.';
+    if(this.active){ BLE.setState('ready'); $('stDev').textContent='SIM_R02'; $('stBat').textContent='81%'; }
+    else { BLE.setState('disconnected'); clearInterval(this.liveIv); }
+  },
+  handle(pkt){   // beantwortet Frames wie ein echter Ring
+    const cmd=pkt[0];
+    if(cmd===0x03) setTimeout(()=>Codec.onFrame(Codec.make(0x03,[81,0])),80);
+    if(cmd===0x69&&pkt[2]===1){
+      clearInterval(this.liveIv); let b=64;
+      this.liveIv=setInterval(()=>{ b=Math.max(52,Math.min(180,b+(Math.random()*6-3)));
+        Codec.onFrame(Codec.make(0x69,[pkt[1],0,Math.round(pkt[1]===3?96+Math.random()*3:b)])); },1000);
+    }
+    if(cmd===0x6a) clearInterval(this.liveIv);
+    if(cmd===0x15){ // synthetisches Tages-HR-Log streamen
+      const mid=new Date(); mid.setHours(0,0,0,0);
+      const rates=[...Array(288)].map((_,i)=>{
+        const h=i/12;
+        if(h<7) return Math.round(52+Math.random()*6+(h<3?4:0));           // Schlaf
+        if(h>22) return Math.round(58+Math.random()*8);
+        return Math.round(68+Math.random()*20+(h>17&&h<19?40:0));          // Tag + Workout
+      });
+      this._streamHrLog(mid,rates);
+    }
+    if(cmd===0x43){
+      setTimeout(()=>Codec.onFrame(Codec.make(0x43,[0xf0,0,1,0,0,0])),50);
+      const d=new Date(), n=3;
+      for(let i=0;i<n;i++) setTimeout(()=>{
+        Codec.onFrame(Codec.make(0x43,[Codec.bcd(d.getFullYear()%100),Codec.bcd(d.getMonth()+1),Codec.bcd(d.getDate()),
+          16+i*4, i, n, 0xc8,0x00, (2500+i*800)&0xff,((2500+i*800)>>8)&0xff, 0x40,0x06]));
+      },120+i*60);
+    }
+  },
+  _streamHrLog(mid,rates){
+    const size=Math.ceil(288/13)+1, ts=Math.floor(mid.getTime()/1000);
+    setTimeout(()=>Codec.onFrame(Codec.make(0x15,[0,size,5])),50);
+    setTimeout(()=>Codec.onFrame(Codec.make(0x15,[1,ts&0xff,(ts>>8)&0xff,(ts>>16)&0xff,(ts>>24)&0xff,...rates.slice(0,9)])),120);
+    let idx=9;
+    for(let s=2;s<size;s++){
+      const chunk=rates.slice(idx,idx+13); idx+=13;
+      setTimeout(()=>Codec.onFrame(Codec.make(0x15,[s,...chunk])),120+s*40);
+    }
+  },
+  async fillHistory(n){
+    $('simStatus').textContent='Generiere '+n+' Tage…';
+    for(let i=n;i>=1;i--){
+      const d=new Date(); d.setDate(d.getDate()-i); d.setHours(0,0,0,0);
+      const day=dayKey(d), base=Date.now();
+      const drink=Math.random()<0.15, sport=Math.random()<0.4;
+      const rows=[];
+      for(let s=0;s<288;s++){
+        const h=s/12; let bpm;
+        if(h<7) bpm=53+Math.random()*6+(drink?7:0);
+        else bpm=68+Math.random()*18+(sport&&h>17&&h<19?45:0);
+        rows.push({ts:d.getTime()+s*5*60000, bpm:Math.round(bpm), src:'log'});
+      }
+      await Store.putHrBulk(rows);
+      if(drink) await db.events.add({day, tag:'Alkohol'});
+      if(sport) await db.events.add({day, tag:'Sport'});
+      await Analytics.recomputeDay(day);
+    }
+    $('simStatus').textContent=n+' Tage Historie generiert ✓ → COCKPIT/ANALYSE ansehen';
+    UI.dbCount(); UI.renderCockpit(); UI.renderAnalyse();
+  }
+};
+
+/* ============ MODUL: ui ============ */
+const UI = {
+  charts:{},
+  tab(v){
+    document.querySelectorAll('.view').forEach(e=>e.classList.remove('on'));
+    document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on',e.dataset.v===v));
+    $('v-'+v).classList.add('on');
+    if(v==='cockpit') this.renderCockpit();
+    if(v==='analyse') this.renderAnalyse();
+    if(v==='daten') this.renderDb();
+    if(v==='live') this.initLiveChart();
+  },
+  async dbCount(){
+    let n=0; for(const t of ['hr','spo2','steps','sleep','battery','events','daily']) n+=await db.table(t).count();
+    $('stDb').textContent=n;
+  },
+  toggleLive(kind){ Live.toggle(kind).catch(e=>$('liveStatus').textContent=e.message); },
+  initLiveChart(){
+    if(Live.chart) return;
+    Live.chart=new Chart($('chLive'),{type:'line',
+      data:{labels:[],datasets:[{data:[],borderColor:'#2dd4bf',borderWidth:2,pointRadius:0,tension:.3,fill:{target:'origin'},backgroundColor:'rgba(45,212,191,.08)'}]},
+      options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},
+        scales:{x:{display:false},y:{grid:{color:'#1a2230'},ticks:{color:'#5a6678'}}}}});
+  },
+  async renderCockpit(){
+    const day=dayKey(), d=await db.daily.get(day)||{};
+    $('cockpitDate').textContent=day;
+    $('rdScore').textContent=d.readiness??'--';
+    $('rdScore').style.color=d.readiness>=67?'var(--gn)':d.readiness>=34?'var(--yl)':d.readiness!=null?'var(--rd)':'var(--muted)';
+    if(d.readiness!=null) $('rdLabel').textContent=d.readiness>=67?'GRÜN → hohe Belastung ok':d.readiness>=34?'GELB → moderat':'ROT → Regeneration';
+    $('cRhr').textContent=d.rhr??'–';
+    $('cHrv').textContent=d.hrv??'–';
+    $('cSteps').textContent=d.steps??'–';
+    $('cCal').textContent=d.cal?d.cal+' kcal':'–';
+    const sl=await db.sleep.get(day);
+    $('cSleep').textContent=sl?(sl.minutes/60).toFixed(1)+'h (deep '+(sl.phases.deep/60).toFixed(1)+'h)':'–';
+    const an=await Analytics.anomalies(7);
+    $('cAnom').textContent=an.length?an.length+' ⚠':'0 ✓';
+    // Tages-Chart
+    const start=new Date(day+'T00:00:00').getTime();
+    const rows=await db.hr.where('ts').between(start,start+86400000).toArray();
+    const data=rows.map(r=>({x:(r.ts-start)/3600000, y:r.bpm}));
+    if(this.charts.day) this.charts.day.destroy();
+    this.charts.day=new Chart($('chDay'),{type:'scatter',
+      data:{datasets:[{data,pointRadius:1.5,pointBackgroundColor:'#2dd4bf',showLine:true,borderColor:'rgba(45,212,191,.4)',borderWidth:1}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{x:{min:0,max:24,grid:{color:'#1a2230'},ticks:{color:'#5a6678',callback:v=>v+'h'}},
+                y:{grid:{color:'#1a2230'},ticks:{color:'#5a6678'}}}}});
+    this.dbCount();
+  },
+  async renderAnalyse(){
+    const n=+$('trendRange').value;
+    const all=(await db.daily.orderBy('day').reverse().limit(n).toArray()).reverse();
+    if(this.charts.trend) this.charts.trend.destroy();
+    this.charts.trend=new Chart($('chTrend'),{type:'line',
+      data:{labels:all.map(d=>d.day.slice(5)),datasets:[
+        {label:'Readiness',data:all.map(d=>d.readiness),borderColor:'#4ade80',borderWidth:2,pointRadius:0,tension:.3},
+        {label:'RHR',data:all.map(d=>d.rhr),borderColor:'#2dd4bf',borderWidth:1.5,pointRadius:0,tension:.3},
+        {label:'HRV~',data:all.map(d=>d.hrv),borderColor:'#a78bfa',borderWidth:1.5,pointRadius:0,tension:.3}]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{labels:{color:'#c9d4e3',boxWidth:12,font:{size:10}}}},
+        scales:{x:{grid:{color:'#1a2230'},ticks:{color:'#5a6678',maxTicksLimit:10}},
+                y:{grid:{color:'#1a2230'},ticks:{color:'#5a6678'}}}}});
+    const an=await Analytics.anomalies(n);
+    $('anomList').innerHTML=an.length?an.map(a=>'⚠ '+a).join('<br>'):'Keine Anomalien ✓';
+    const corr=await Analytics.correlations();
+    $('corrList').innerHTML=corr.length
+      ? corr.map(c=>'<b>'+c.tag+'</b> (n='+c.n+'): Ruhepuls am Folgetag '+(c.dRhr>0?'+':'')+c.dRhr+' bpm vs. Baseline').join('<br>')
+      : 'Noch keine Tags + Folgetag-Daten. Events im Cockpit taggen.';
+  },
+  async renderDb(){
+    let html='';
+    for(const t of ['hr','spo2','steps','sleep','battery','events','daily'])
+      html+=t+': <b>'+await db.table(t).count()+'</b> rows<br>';
+    $('dbStats').innerHTML=html;
+  },
+  async initTags(){
+    const tags=['Alkohol','Sport','Stress','Krank','Koffein spät','Wenig Schlaf'];
+    $('tagBtns').innerHTML=tags.map(t=>'<button onclick="UI.addTag(this,\''+t+'\')">'+t+'</button>').join('');
+  },
+  async addTag(btn,tag){
+    await db.events.add({day:dayKey(), tag});
+    btn.classList.add('on');
+    $('tagStatus').textContent='„'+tag+'" für heute gespeichert → Korrelation ab morgen sichtbar.';
+    this.dbCount();
+  }
+};
+window.UI=UI; window.BLE=BLE; window.Codec=Codec; window.Store=Store; window.Sync=Sync; window.Dbg=Dbg; window.Sim=Sim;
+
+/* Boot */
+window.onerror=(msg,src,line)=>{ try{ Dbg.log('err','JS-FEHLER: '+msg+' (Zeile '+line+')'); }catch(e){} };
+Dbg.log('info','RingOS v3.2 geladen – Fehler-Trap aktiv');
+UI.initTags(); UI.renderCockpit(); UI.dbCount();
+/* PWA-Install: braucht Hosting (https) + separate sw.js – als lokale Datei läuft alles,
+   nur der "Installieren"-Prompt fehlt. Beim GitHub-Pages-Deploy legen wir sw.js daneben. */
+</script>
+</body>
+</html>
