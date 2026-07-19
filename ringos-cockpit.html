@@ -82,7 +82,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v3.4 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v3.8 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -116,6 +116,15 @@
         <div class="kv"><span class="k">Anomalien vs. Baseline</span><span class="v" id="cAnom">–</span></div>
       </div>
     </div>
+    <div class="panel" id="sleepPanel">
+      <h2>Schlaf letzte Nacht 🌙</h2>
+      <div class="score" id="slHours" style="color:var(--pu)">–</div>
+      <div class="note" id="slSummary">Noch keine Schlafdaten. Ring nachts tragen, morgens „HEUTE SYNCEN", dann „NEU BERECHNEN".</div>
+      <div class="kv"><span class="k">Tiefschlaf</span><span class="v" id="slDeep">–</span></div>
+      <div class="kv"><span class="k">Leichtschlaf</span><span class="v" id="slLight">–</span></div>
+      <div class="kv"><span class="k">Aufgewacht</span><span class="v" id="slWake">–</span></div>
+      <div class="kv"><span class="k">Ins Bett / Aufgestanden</span><span class="v" id="slTimes">–</span></div>
+    </div>
     <div class="panel">
       <h2>Tages-HR (Ring-Log, 5-Min-Raster) <span id="cockpitDate"></span></h2>
       <div class="chartbox"><canvas id="chDay"></canvas></div>
@@ -144,8 +153,9 @@
         <h2>Verbindung</h2>
         <div class="btnrow">
           <button class="pri" onclick="BLE.connect()">CONNECT</button>
-          <button onclick="BLE.connectAll()">CONNECT (ALLE GERÄTE)</button>
-          <button onclick="BLE.disconnect()">DISCONNECT</button>
+          <button class="pri" onclick="BLE.reconnectKnown()">SCHNELL-VERBINDEN</button>
+          <button onclick="BLE.connectAll()">ALLE GERÄTE</button>
+          <button onclick="BLE.disconnect()">TRENNEN</button>
           <button onclick="Codec.sendBattery()">BATTERIE</button>
           <button onclick="Codec.sendSetTime()">ZEIT SETZEN</button>
         </div>
@@ -168,6 +178,7 @@
         <button class="pri" onclick="Sync.syncDay(0)">HEUTE SYNCEN</button>
         <button onclick="Sync.syncDays(7)">LETZTE 7 TAGE</button>
         <button onclick="Sync.syncSteps()">SCHRITTE HEUTE</button>
+        <button class="pri" onclick="Sync.recompute()">NEU BERECHNEN</button>
       </div>
       <div class="btnrow">
         <button onclick="Codec.readHrLogSettings()">LOGGING-STATUS LESEN</button>
@@ -281,7 +292,11 @@
    ===================================================================== */
 const $ = id => document.getElementById(id);
 const hex = b => Array.from(b).map(x=>x.toString(16).padStart(2,'0')).join(' ');
-const dayKey = (d=new Date()) => d.toISOString().slice(0,10);
+/* LOKALE Tages-Kennung (nicht UTC!) – sonst landen Nacht-Daten unter dem falschen Tag */
+const dayKey = (d=new Date()) => {
+  const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);
+  return z.toISOString().slice(0,10);
+};
 
 /* ============ MODUL: data-store (Dexie / IndexedDB) ============ */
 const db = new Dexie('ringos');
@@ -536,6 +551,20 @@ const BLE = {
     if(this.device&&this.device.gatt.connected) this.device.gatt.disconnect();
     this.setState('disconnected'); $('smRetry').textContent='aus';
   },
+  /* Schnell-Verbinden ohne Auswahl-Popup: nutzt bereits erlaubte Geräte (navigator.bluetooth.getDevices).
+     Löst das „muss jedes Mal neu koppeln"-Problem in Bluefy/Chrome. */
+  async reconnectKnown(){
+    try{
+      if(!navigator.bluetooth.getDevices){ $('liveStatus').textContent='Schnell-Verbinden hier nicht verfügbar – normal CONNECT nutzen.'; return; }
+      const known = await navigator.bluetooth.getDevices();
+      const ring = known.find(d=>/R0|COLMI/i.test(d.name||'')) || known[0];
+      if(!ring){ $('liveStatus').textContent='Kein gemerktes Gerät – einmal normal CONNECT.'; return; }
+      this.device = ring;
+      this.device.addEventListener('gattserverdisconnected',()=>this.onDrop());
+      this.wantReconnect=true; this.retries=0;
+      await this._open();
+    }catch(e){ $('liveStatus').textContent='Schnell-Verbinden fehlgeschlagen: '+e.message; }
+  },
   async write(pkt){
     Dbg.log('tx','» '+hex(pkt));
     if(Sim.active) return Sim.handle(pkt);      // Simulator fängt Frames ab
@@ -562,6 +591,13 @@ const Sync = {
   syncSteps(){
     this.queue.push(async()=>{ this.log('Schritte anfordern (heute)'); Codec.stepParser.reset(); await Codec.reqSteps(0); });
     this._next();
+  },
+  async recompute(){
+    this.log('Alle Tage neu berechnen…');
+    const n=await Analytics.recomputeAll();
+    UI.renderCockpit(); UI.renderAnalyse();
+    $('syncStatus').textContent=n+' Tag(e) neu berechnet ✓ → COCKPIT ansehen';
+    this.log(n+' Tag(e) neu berechnet ✓');
   },
   async _next(){
     if(this.busy||!this.queue.length) return;
@@ -593,37 +629,58 @@ const Sync = {
 
 /* ============ MODUL: analytics ============ */
 const Analytics = {
-  /* Schlaf-Heuristik: längstes nächtliches Fenster (20:00–12:00) mit HR < Tagesmittel−10%
-     und lückenloser Messung. Phasen: deep = HR < nightMin+4, sonst light. Transparent, kein ML. */
+  /* Schlaf-Heuristik (transparent, kein ML):
+     Fenster 20:00 Vortag → 12:00 heute. Ruheniveau = 10%-Perzentil der Nacht.
+     Schlaf-Slot: bpm < Ruheniveau+12 (unter Wachpuls). Tiefschlaf: bpm < Ruheniveau+5.
+     Aufwacher: Sprünge über Ruheniveau+18 mitten im Schlafblock. Bettzeit/Aufwachzeit aus Rand-Slots. */
   async recomputeDay(day){
-    const start=new Date(day+'T00:00:00').getTime(), end=start+86400000;
-    const rows=await db.hr.where('ts').between(start-4*3600000,end).toArray();   // ab 20:00 Vortag
-    if(rows.length<20) return;
-    const bpms=rows.map(r=>r.bpm);
-    const mean=bpms.reduce((a,b)=>a+b,0)/bpms.length;
-    // Nachtfenster
-    const night=rows.filter(r=>r.bpm<mean*0.9);
-    let sleepMin=0, deep=0;
-    if(night.length>=12){                        // >= 1h unter Schwelle
-      sleepMin=night.length*5;
-      const nightMin=Math.min(...night.map(r=>r.bpm));
-      deep=night.filter(r=>r.bpm<nightMin+4).length*5;
-      await db.sleep.put({day, minutes:sleepMin, phases:{deep, light:sleepMin-deep}});
+    const dayStart=new Date(day+'T00:00:00').getTime();
+    const winStart=dayStart-4*3600000, winEnd=dayStart+12*3600000;   // 20:00 Vortag → 12:00 heute
+    const rows=(await db.hr.where('ts').between(winStart,winEnd).toArray()).sort((a,b)=>a.ts-b.ts);
+    if(rows.length<12){                                              // <1h Daten → nichts rechnen
+      const d0=await db.daily.get(day)||{day}; await db.daily.put(d0); return;
     }
+    const bpms=rows.map(r=>r.bpm);
+    const sortedAll=[...bpms].sort((a,b)=>a-b);
+    const pct=q=>sortedAll[Math.floor(q*(sortedAll.length-1))];
+    const rest=pct(0.10);                                            // Ruheniveau
+    const sleepThr=rest+12, deepThr=rest+5, wakeThr=rest+18;
+
+    // Schlaf-Slots + zusammenhängender Hauptblock
+    let sleepMin=0, deepMin=0, wakeups=0, bedIdx=-1, wakeIdx=-1, inSleep=false;
+    rows.forEach((r,i)=>{
+      const asleep=r.bpm>0 && r.bpm<sleepThr;
+      if(asleep){
+        sleepMin+=5; if(r.bpm<deepThr) deepMin+=5;
+        if(bedIdx<0) bedIdx=i; wakeIdx=i; inSleep=true;
+      } else if(inSleep && r.bpm>wakeThr){ wakeups++; inSleep=false; }
+    });
+
     // RHR: Mittel der 10 niedrigsten Werte
-    const sorted=[...bpms].sort((a,b)=>a-b);
-    const rhr=Math.round(sorted.slice(0,10).reduce((a,b)=>a+b,0)/Math.min(10,sorted.length));
-    // HRV-Näherung: RMSSD über RR aus 5-Min-BPM der Nacht (grob! Trend-Indikator, kein Medizinwert)
+    const rhr=Math.round(sortedAll.slice(0,10).reduce((a,b)=>a+b,0)/Math.min(10,sortedAll.length));
+    // HRV-Näherung (RMSSD über RR aus 5-Min-BPM der Schlafphase; grob, nur Trend)
     let hrv=null;
-    if(night.length>3){
-      const rr=night.map(r=>60000/r.bpm); let sq=0;
-      for(let i=1;i<rr.length;i++) sq+=(rr[i]-rr[i-1])**2;
-      hrv=Math.round(Math.sqrt(sq/(rr.length-1)));
+    const nb=rows.filter(r=>r.bpm>0&&r.bpm<sleepThr).map(r=>r.bpm);
+    if(nb.length>3){ const rr=nb.map(b=>60000/b); let sq=0;
+      for(let i=1;i<rr.length;i++) sq+=(rr[i]-rr[i-1])**2; hrv=Math.round(Math.sqrt(sq/(rr.length-1))); }
+
+    if(sleepMin>=30){
+      await db.sleep.put({day, minutes:sleepMin,
+        phases:{deep:deepMin, light:sleepMin-deepMin}, wakeups,
+        bed: bedIdx>=0? rows[bedIdx].ts : null,
+        wake: wakeIdx>=0? rows[wakeIdx].ts : null});
     }
     const daily=await db.daily.get(day)||{day};
     Object.assign(daily,{rhr,hrv,sleepMin});
     daily.readiness=await this.readiness(day,daily);
     await db.daily.put(daily);
+  },
+  /* Erzwungene Neuberechnung aller Tage mit HR-Daten (Button „NEU BERECHNEN") */
+  async recomputeAll(){
+    const all=await db.hr.orderBy('ts').toArray();
+    const days=[...new Set(all.map(r=>dayKey(new Date(r.ts))))];
+    for(const d of days) await this.recomputeDay(d);
+    return days.length;
   },
   async baseline(day,field,n=30){
     const all=await db.daily.where('day').below(day).reverse().limit(n).toArray();
@@ -824,7 +881,23 @@ const UI = {
     $('cSteps').textContent=d.steps??'–';
     $('cCal').textContent=d.cal?d.cal+' kcal':'–';
     const sl=await db.sleep.get(day);
-    $('cSleep').textContent=sl?(sl.minutes/60).toFixed(1)+'h (deep '+(sl.phases.deep/60).toFixed(1)+'h)':'–';
+    $('cSleep').textContent=sl?(sl.minutes/60).toFixed(1)+'h (tief '+(sl.phases.deep/60).toFixed(1)+'h)':'–';
+    // Schlaf-Karte in Worten
+    const fmtT=ts=>ts?new Date(ts).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'?';
+    const fmtH=m=>{const h=Math.floor(m/60),mm=m%60; return h+' Std '+mm+' Min';};
+    if(sl){
+      $('slHours').textContent=(sl.minutes/60).toFixed(1)+' h';
+      $('slDeep').textContent=fmtH(sl.phases.deep)+' ('+Math.round(sl.phases.deep/sl.minutes*100)+'%)';
+      $('slLight').textContent=fmtH(sl.phases.light);
+      $('slWake').textContent=(sl.wakeups||0)+'× aufgewacht';
+      $('slTimes').textContent=fmtT(sl.bed)+' → '+fmtT(sl.wake);
+      const q=sl.minutes>=420?'Gut ausgeschlafen':sl.minutes>=360?'Solide Nacht':sl.minutes>=270?'Etwas kurz':'Wenig Schlaf';
+      $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.';
+    } else {
+      $('slHours').textContent='–';
+      $('slSummary').textContent='Noch keine Schlafdaten für heute. „HEUTE SYNCEN" → dann „NEU BERECHNEN".';
+      ['slDeep','slLight','slWake','slTimes'].forEach(id=>$(id).textContent='–');
+    }
     const an=await Analytics.anomalies(7);
     $('cAnom').textContent=an.length?an.length+' ⚠':'0 ✓';
     // Tages-Chart
@@ -882,6 +955,16 @@ window.UI=UI; window.BLE=BLE; window.Codec=Codec; window.Store=Store; window.Syn
 window.onerror=(msg,src,line)=>{ try{ Dbg.log('err','JS-FEHLER: '+msg+' (Zeile '+line+')'); }catch(e){} };
 Dbg.log('info','RingOS v3.2 geladen – Fehler-Trap aktiv');
 UI.initTags(); UI.renderCockpit(); UI.dbCount();
+
+/* Sauberes Trennen beim App-Verlassen/Schließen → Ring hängt nicht auf OS-Ebene fest */
+window.addEventListener('pagehide', ()=>{ try{ if(BLE.device&&BLE.device.gatt.connected) BLE.device.gatt.disconnect(); }catch(e){} });
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='hidden' && BLE.device && BLE.device.gatt.connected){
+    try{ BLE.wantReconnect=false; BLE.device.gatt.disconnect(); }catch(e){}
+  }
+});
+/* Beim Öffnen automatisch zum gemerkten Ring verbinden – kein Popup nötig */
+window.addEventListener('load', ()=>{ setTimeout(()=>BLE.reconnectKnown().catch(()=>{}), 800); });
 /* PWA-Install: braucht Hosting (https) + separate sw.js – als lokale Datei läuft alles,
    nur der "Installieren"-Prompt fehlt. Beim GitHub-Pages-Deploy legen wir sw.js daneben. */
 </script>
