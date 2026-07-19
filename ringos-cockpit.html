@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v9.0 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.0 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -274,10 +274,14 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       <div class="note">„SCHLAFPHASEN (NATIV)" holt die echten Schlafstufen (Leicht/Tief/Wach) direkt aus dem Ring –
       viel genauer als die Puls-Heuristik. Funktioniert nur mit neuerer Firmware (die meisten R02 ab 2024).</div>
       <div class="btnrow">
+        <button class="pri" style="border-color:var(--gn);color:var(--gn)" onclick="Codec.enableAll().catch(e=>Sync.log('Fehler: '+e.message))">⚡ ALLES AKTIVIEREN (SpO2 · STRESS · HRV · PULS)</button>
+      </div>
+      <div class="note">Einmal drücken → der Ring zeichnet ab jetzt <b>alle</b> Messwerte rund um die Uhr auf.
+      Das ist der Grund, warum HRV/Stress vorher leer waren – die Aufzeichnung war ab Werk aus. Daten erscheinen nach dem nächsten Tag/der nächsten Nacht.</div>
+      <div class="btnrow">
         <button onclick="Codec.readHrLogSettings()">LOGGING-STATUS LESEN</button>
-        <button class="pri" onclick="Codec.setHrLogSettings(true,5)">AUTO-LOGGING AN (5 MIN)</button>
-        <button onclick="Codec.setHrLogSettings(true,15)">AN (15 MIN, SPART AKKU)</button>
-        <button onclick="Codec.setHrLogSettings(false,60)">AUS</button>
+        <button onclick="Codec.setHrLogSettings(true,5)">NUR PULS AN (5 MIN)</button>
+        <button onclick="Codec.setHrLogSettings(false,60)">PULS AUS</button>
       </div>
       <div class="note">Ab Werk ist das automatische Puls-Logging oft deaktiviert – einmal aktivieren,
       dann misst der Ring selbstständig. 5 Min = dichteste Daten (beste Schlaf-Analyse), 15 Min = längerer Akku.</div>
@@ -531,6 +535,32 @@ const Codec = {
      UNVERIFIZIERT – Abruf-Mechanismus laut Doku mehrdeutig, am echten Ring gegenprüfen. */
   async reqHrv(){ Codec.hrvParser.reset(); await BLE.write(Codec.make(57,[0])); },
   async reqStress(){ Codec.stressParser.reset(); await BLE.write(Codec.make(55,[0])); },
+
+  /* ===== Settings-Kanal (gleicher Service): [cmdId, action(1=read,2=write), isEnabled, …]
+     Ab Werk ist die 24/7-Messung von SpO2/Stress/HRV AUS. Hier schalten wir sie an,
+     damit der Ring sie aufzeichnet und unsere Abrufe (55/57, Big-Data 42) Daten liefern.
+     Command-IDs aus colmi.puxtril.com/settings: SpO2=44, Stress=54, HRV=56, BlutdruckMonitor=12 */
+  async enableMonitoring(cmdId, on=true){ await BLE.write(Codec.make(cmdId,[2, on?1:0])); },
+  async enableAll(){
+    Dbg.log('info','Aktiviere alle 24/7-Messungen…');
+    await Codec.setHrLogSettings(true,5);                 // Puls alle 5 Min
+    await new Promise(r=>setTimeout(r,300));
+    await Codec.enableMonitoring(44,true);                // SpO2
+    await new Promise(r=>setTimeout(r,300));
+    await Codec.enableMonitoring(54,true);                // Stress
+    await new Promise(r=>setTimeout(r,300));
+    await Codec.enableMonitoring(56,true);                // HRV
+    await new Promise(r=>setTimeout(r,300));
+    await Codec.enableMonitoring(12,true);                // Blutdruck-Monitor (falls unterstützt)
+    $('syncStatus').textContent='Alle Messungen aktiviert ✓ – ab jetzt zeichnet der Ring SpO2/Stress/HRV auf. Daten ab morgen abrufbar.';
+    Sync.log('Alle 24/7-Messungen aktiviert ✓ (Puls, SpO2, Stress, HRV)');
+  },
+  /* User Data an den Ring schreiben – macht ringinterne Kalorien/VO2 genauer.
+     [10, 2, is24=1, metric=1, gender(0=w,1=m), age, height_cm, weight_kg, sbp, dbp] */
+  async writeUserData(gender, age, height, weight){
+    await BLE.write(Codec.make(10,[2, 1, 1, gender, age, height, weight, 120, 80]));
+    Dbg.log('info','Nutzerdaten an Ring geschrieben (Alter '+age+', '+height+'cm, '+weight+'kg).');
+  },
 
   /* ---- Multi-Packet-Parser: HR-Log (Port von HeartRateLogParser) ---- */
   hrParser:{
@@ -817,8 +847,10 @@ const BLE = {
     $('liveStatus').textContent='Verbunden ✓';
     await Codec.sendBattery();
     await Codec.sendSetTime();     // Ring-Uhr bei jedem Connect stellen → Logs stimmen
+    // Beim ersten Verbinden alle Messungen aktivieren (einmalig gemerkt)
+    if(!settings.activated){ setTimeout(()=>{ Codec.enableAll().then(()=>{ settings.activated=true; store.set('ro_set',settings); }).catch(()=>{}); }, 800); }
     // Automatisch letzte Nacht + heutigen Puls holen → morgens reicht CONNECT
-    if(this.bigRx){ setTimeout(()=>BigData.request(39).catch(()=>{}), 1200); }
+    if(this.bigRx){ setTimeout(()=>BigData.request(39).catch(()=>{}), 2000); }
     setTimeout(()=>Sync.syncDay(0), 2200);
     /* HRV/Stress-Auto-Abruf deaktiviert – Firmware antwortet (noch) nicht auf 57/55.
        Manuell testbar über die Buttons im SYNC-Tab; sobald ein echtes Antwort-Frame
@@ -1469,10 +1501,11 @@ const UI = {
     // Schlaf: heute, sonst zuletzt erkannte Nacht (robust gegen Zeitzonen-/Tageswechsel)
     let sl=await db.sleep.get(day);
     if(!sl){ const allSl=await db.sleep.orderBy('day').toArray(); sl=allSl[allSl.length-1]||null; }
+    if(sl){ sl.minutes=sl.minutes||0; sl.phases=sl.phases||{deep:0,light:sl.minutes}; }  // defensiv gegen alte/kaputte Records
     $('cSleep').textContent=sl?(sl.minutes/60).toFixed(1)+'h (tief '+(sl.phases.deep/60).toFixed(1)+'h)':'–';
     const fmtT=ts=>ts?new Date(ts).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'?';
     const fmtH=m=>{const h=Math.floor(m/60),mm=m%60; return h+' Std '+mm+' Min';};
-    if(sl){
+    if(sl && sl.minutes>0){
       $('slHours').textContent=(sl.minutes/60).toFixed(1)+' h';
       $('slDeep').textContent=fmtH(sl.phases.deep)+' ('+Math.round(sl.phases.deep/sl.minutes*100)+'%)';
       $('slLight').textContent=fmtH(sl.phases.light);
