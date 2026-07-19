@@ -82,7 +82,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v5.1 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v5.3 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -113,6 +113,7 @@
         <div class="kv"><span class="k">Schritte</span><span class="v" id="cSteps">–</span></div>
         <div class="kv"><span class="k">Kalorien</span><span class="v" id="cCal">–</span></div>
         <div class="kv"><span class="k">SpO2 (letzte)</span><span class="v" id="cSpo2">–</span></div>
+        <div class="kv"><span class="k">Stress (Ring)</span><span class="v" id="cStress">–</span></div>
         <div class="kv"><span class="k">Anomalien vs. Baseline</span><span class="v" id="cAnom">–</span></div>
       </div>
     </div>
@@ -183,6 +184,8 @@
       <div class="btnrow">
         <button class="pri" onclick="BigData.request(39).catch(e=>Sync.log('Schlaf nativ: '+e.message))">🌙 SCHLAFPHASEN (NATIV)</button>
         <button onclick="BigData.request(42).catch(e=>Sync.log('SpO2 nativ: '+e.message))">SpO2-HISTORIE (NATIV)</button>
+        <button onclick="Codec.reqHrv().catch(e=>Sync.log('HRV: '+e.message))">HRV (NATIV)</button>
+        <button onclick="Codec.reqStress().catch(e=>Sync.log('Stress: '+e.message))">STRESS (NATIV)</button>
       </div>
       <div class="note">„SCHLAFPHASEN (NATIV)" holt die echten Schlafstufen (Leicht/Tief/Wach) direkt aus dem Ring –
       viel genauer als die Puls-Heuristik. Funktioniert nur mit neuerer Firmware (die meisten R02 ab 2024).</div>
@@ -259,7 +262,8 @@
         <tr><td>0x16</td><td>HR-Logging an/aus + Intervall</td><td class="ok">verifiziert</td></tr>
         <tr><td>0xBC/39</td><td>Big-Data Schlafphasen (Leicht/Tief/Wach)</td><td class="ok">implementiert</td></tr>
         <tr><td>0xBC/42</td><td>Big-Data SpO2-Historie</td><td class="ok">implementiert</td></tr>
-        <tr><td>57 / 55</td><td>HRV-Historie / Stress (split array)</td><td class="unv">nächster Ausbau</td></tr>
+        <tr><td>57</td><td>HRV-Historie (split array)</td><td class="unv">implementiert, am Ring prüfen</td></tr>
+        <tr><td>55</td><td>Stress/Pressure (split array)</td><td class="unv">implementiert, am Ring prüfen</td></tr>
         <tr><td>–</td><td>Raw PPG/Accel</td><td class="unv">nur ATC_RF03-Firmware</td></tr>
       </table>
     </div>
@@ -422,6 +426,11 @@ const Codec = {
     /* CMD 0x43 + [offset, 0F 00 5F 01] (konstante Bytes lt. RE, Bedeutung teils unklar) */
     await BLE.write(Codec.make(0x43,[dayOffset,0x0f,0x00,0x5f,0x01]));
   },
+  /* HRV-Historie (Cmd 57) + Stress/Pressure (Cmd 55) – Split-Array, wie HR-Log.
+     Abruf mit index 0; Antwort: index0=[size,range], index1=[offset,12 Werte], index>1=[13 Werte].
+     UNVERIFIZIERT – Abruf-Mechanismus laut Doku mehrdeutig, am echten Ring gegenprüfen. */
+  async reqHrv(){ Codec.hrvParser.reset(); await BLE.write(Codec.make(57,[0])); },
+  async reqStress(){ Codec.stressParser.reset(); await BLE.write(Codec.make(55,[0])); },
 
   /* ---- Multi-Packet-Parser: HR-Log (Port von HeartRateLogParser) ---- */
   hrParser:{
@@ -465,8 +474,35 @@ const Codec = {
     }
   },
 
+  /* ---- Split-Array-Parser für HRV (57) und Stress (55) ----
+     index 0: [_, size, range]  · index 1: [_, offset, 12 Werte]  · index >1: [_, 13 Werte] */
+  hrvParser:{
+    reset(){ this.vals=[]; this.size=0; this.range=5; this.done=false; },
+    parse(p){
+      const idx=p[1];
+      if(idx===255){ this.reset(); return {noData:true}; }
+      if(idx===0){ this.size=p[2]; this.range=p[3]||5; this.vals=[]; return null; }
+      if(idx===1){ for(let i=3;i<15;i++) this.vals.push(p[i]); }
+      else { for(let i=2;i<15;i++) this.vals.push(p[i]); }
+      if(idx>=this.size-1 && this.size>0){ const out={vals:this.vals.filter(v=>v>0), range:this.range}; this.reset(); return out; }
+      return null;
+    }
+  },
+  stressParser:{
+    reset(){ this.vals=[]; this.size=0; this.range=5; },
+    parse(p){
+      const idx=p[1];
+      if(idx===255){ this.reset(); return {noData:true}; }
+      if(idx===0){ this.size=p[2]; this.range=p[3]||5; this.vals=[]; return null; }
+      if(idx===1){ for(let i=3;i<15;i++) this.vals.push(p[i]); }
+      else { for(let i=3;i<15;i++) this.vals.push(p[i]); }   // Stress: index>1 hat offset an [2]
+      if(idx>=this.size-1 && this.size>0){ const out={vals:this.vals.filter(v=>v>0 && v<=100), range:this.range}; this.reset(); return out; }
+      return null;
+    }
+  },
+
   /* ---- Dispatcher für eingehende Frames ---- */
-  onFrame(p){
+  async onFrame(p){
     if(Dbg.recording||true) Dbg.log('rx','« '+hex(p));
     switch(p[0]){
       case 0x03:
@@ -508,12 +544,38 @@ const Codec = {
         else if(Array.isArray(r)) Sync.onSteps(r);
         break;
       }
+      case 57:{   // HRV-Historie
+        const r=Codec.hrvParser.parse(p);
+        if(r&&r.noData) Sync.done('Keine HRV-Daten.');
+        else if(r&&r.vals){
+          if(r.vals.length){
+            const avg=Math.round(r.vals.reduce((a,b)=>a+b,0)/r.vals.length);
+            const day=dayKey(); const dl=await db.daily.get(day)||{day}; dl.hrvNative=avg; await db.daily.put(dl);
+            $('cHrv').textContent=avg+' (nativ)'; Sync.done('Native HRV: Ø '+avg+' ('+r.vals.length+' Werte) ✓');
+          } else Sync.done('HRV: keine gültigen Werte.');
+          UI.renderCockpit();
+        }
+        break;
+      }
+      case 55:{   // Stress / Pressure
+        const r=Codec.stressParser.parse(p);
+        if(r&&r.noData) Sync.done('Keine Stress-Daten.');
+        else if(r&&r.vals){
+          if(r.vals.length){
+            const avg=Math.round(r.vals.reduce((a,b)=>a+b,0)/r.vals.length);
+            const day=dayKey(); const dl=await db.daily.get(day)||{day}; dl.stress=avg; await db.daily.put(dl);
+            $('cStress').textContent=avg+' /100'; Sync.done('Stress: Ø '+avg+'/100 ('+r.vals.length+' Werte) ✓');
+          } else Sync.done('Stress: keine gültigen Werte.');
+          UI.renderCockpit();
+        }
+        break;
+      }
       default:
         Dbg.log('info','Unbekanntes Frame (Cmd 0x'+p[0].toString(16)+') – interessant für Reverse Engineering!');
     }
   }
 };
-Codec.hrParser.reset(); Codec.stepParser.reset();
+Codec.hrParser.reset(); Codec.stepParser.reset(); Codec.hrvParser.reset(); Codec.stressParser.reset();
 
 /* ============ MODUL: big-data (native Schlafphasen + SpO2-Historie) ============
    Kanal-Frame: [0xBC(magic), dataId, dataLen(LE16), crc16(LE16), ...daten]
@@ -656,6 +718,8 @@ const BLE = {
     // Automatisch letzte Nacht + heutigen Puls holen → morgens reicht CONNECT
     if(this.bigRx){ setTimeout(()=>BigData.request(39).catch(()=>{}), 1200); }
     setTimeout(()=>Sync.syncDay(0), 2200);
+    setTimeout(()=>Codec.reqHrv().catch(()=>{}), 3400);      // echte HRV
+    setTimeout(()=>Codec.reqStress().catch(()=>{}), 4200);   // Stress-Level
   },
   async writeBig(bytes){
     Dbg.log('tx','»BIG '+hex(bytes));
@@ -948,6 +1012,20 @@ const Sim = {
         Codec.onFrame(Codec.make(0x69,[pkt[1],0,Math.round(pkt[1]===3?96+Math.random()*3:b)])); },1000);
     }
     if(cmd===0x6a) clearInterval(this.liveIv);
+    if(cmd===57){ // HRV-Historie: index0=[size,range], dann Werte
+      const vals=[...Array(24)].map(()=>30+Math.floor(Math.random()*40));
+      const size=1+Math.ceil((vals.length+3)/13);
+      setTimeout(()=>Codec.onFrame(Codec.make(57,[0,size,60])),40);
+      setTimeout(()=>Codec.onFrame(Codec.make(57,[1,0,...vals.slice(0,12)])),90);
+      setTimeout(()=>Codec.onFrame(Codec.make(57,[size-1,...vals.slice(12,25)])),140);
+    }
+    if(cmd===55){ // Stress-Historie
+      const vals=[...Array(24)].map(()=>20+Math.floor(Math.random()*50));
+      const size=1+Math.ceil((vals.length+3)/12);
+      setTimeout(()=>Codec.onFrame(Codec.make(55,[0,size,60])),40);
+      setTimeout(()=>Codec.onFrame(Codec.make(55,[1,0,...vals.slice(0,12)])),90);
+      setTimeout(()=>Codec.onFrame(Codec.make(55,[size-1,0,...vals.slice(12,24)])),140);
+    }
     if(cmd===0x15){ // synthetisches Tages-HR-Log streamen
       const mid=new Date(); mid.setHours(0,0,0,0);
       const rates=[...Array(288)].map((_,i)=>{
@@ -1031,7 +1109,8 @@ const UI = {
     $('rdScore').style.color=d.readiness>=67?'var(--gn)':d.readiness>=34?'var(--yl)':d.readiness!=null?'var(--rd)':'var(--muted)';
     if(d.readiness!=null) $('rdLabel').textContent=d.readiness>=67?'GRÜN → hohe Belastung ok':d.readiness>=34?'GELB → moderat':'ROT → Regeneration';
     $('cRhr').textContent=d.rhr??'–';
-    $('cHrv').textContent=d.hrv??'–';
+    $('cHrv').textContent = d.hrvNative!=null ? d.hrvNative+' (nativ)' : (d.hrv??'–');
+    $('cStress').textContent = d.stress!=null ? d.stress+' /100'+(d.stress<40?' 🟢':d.stress<70?' 🟡':' 🔴') : '–';
     $('cSteps').textContent=d.steps??'–';
     $('cCal').textContent=d.cal?d.cal+' kcal':'–';
     // Schlaf: heute, sonst zuletzt erkannte Nacht (robust gegen Zeitzonen-/Tageswechsel)
