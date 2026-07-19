@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.1 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.2 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -758,7 +758,9 @@ const BigData = {
       // Datum = heute - daysAgo (lokal)
       const dt=new Date(); dt.setDate(dt.getDate()-daysAgo); dt.setHours(0,0,0,0);
       const day=dayKey(dt);
-      const bedTs=dt.getTime()+start*60000, wakeTs=dt.getTime()+end*60000;
+      const bedTs=dt.getTime()+start*60000;
+      let wakeTs=dt.getTime()+end*60000;
+      if(end<=start) wakeTs+=86400000;   // Aufwachen am Folgetag (Schlaf über Mitternacht)
       results.push({day, minutes:total, phases:{deep,light}, awake, wakeups, bed:bedTs, wake:wakeTs, periods, src:'native'});
     }
     if(!results.length){ Sync.done('Native Schlafdaten: keine.'); return; }
@@ -1168,8 +1170,9 @@ const Analytics = {
     const rhrB=await this.baseline('9999','rhr');
     const rhr=rhrB?rhrB.mean:(await db.daily.orderBy('day').reverse().limit(1).toArray())[0]?.rhr;
     if(!rhr) return null;
-    const maxRow=await db.hr.orderBy('bpm').reverse().limit(1).toArray();
-    let hrmax=maxRow[0]?.bpm||0;
+    // bpm ist nicht indexiert → NICHT orderBy('bpm') (wirft Fehler!). Max manuell über die letzten Werte.
+    const allHr=await db.hr.toArray();
+    let hrmax = allHr.length ? allHr.reduce((m,r)=>r.bpm>m?r.bpm:m, 0) : 0;
     const ageMax = settings.age? 220-settings.age : 190;
     if(hrmax<140) hrmax=ageMax;                      // zu wenig Belastungsdaten → Alters-Schätzung
     const vo2=Math.round(15.3*hrmax/rhr);
