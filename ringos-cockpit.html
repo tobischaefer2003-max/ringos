@@ -82,7 +82,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v5.0 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v5.1 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -391,12 +391,15 @@ const Codec = {
 
   async sendBattery(){ await BLE.write(Codec.make(0x03)); },
   async sendSetTime(){
-    /* CMD 0x01: BCD [yy mm dd hh mm ss] in UTC + 0x01 (Sprache en) – wichtig für korrekte Log-Zeiten */
+    /* CMD 0x01: BCD [yy mm dd hh mm ss] + 0x01 (Sprache).
+       WICHTIG: LOKALE Zeit setzen (nicht UTC!) – der Ring rechnet Schlaf-/Log-Zeiten
+       als „Minuten ab Mitternacht" gegen seine eigene Uhr. Mit UTC waren alle Zeiten
+       um den TZ-Offset verschoben (in DE Sommer 2h zu früh). */
     const d = new Date();
     await BLE.write(Codec.make(0x01,[
-      Codec.bcd(d.getUTCFullYear()%100), Codec.bcd(d.getUTCMonth()+1), Codec.bcd(d.getUTCDate()),
-      Codec.bcd(d.getUTCHours()), Codec.bcd(d.getUTCMinutes()), Codec.bcd(d.getUTCSeconds()), 1]));
-    Dbg.log('info','Zeit gesetzt (UTC). Antwort ist Capability-Bitfeld, wird ignoriert.');
+      Codec.bcd(d.getFullYear()%100), Codec.bcd(d.getMonth()+1), Codec.bcd(d.getDate()),
+      Codec.bcd(d.getHours()), Codec.bcd(d.getMinutes()), Codec.bcd(d.getSeconds()), 1]));
+    Dbg.log('info','Ring-Uhr auf LOKALZEIT gesetzt ('+d.toLocaleTimeString('de-DE')+') → Schlafzeiten stimmen ab jetzt.');
   },
   /* CMD 0x16 – periodisches HR-Logging (verifiziert):
      lesen: [0x16, 0x01] · schreiben: [0x16, 0x02, enabled(1=an/2=aus), intervall_minuten]
