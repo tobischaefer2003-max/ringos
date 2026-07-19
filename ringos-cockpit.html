@@ -82,7 +82,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v4.0 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v4.1 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -227,10 +227,13 @@
         <button onclick="Store.exportCSV()">EXPORT CSV (HR)</button>
         <button onclick="document.getElementById('impFile').click()">IMPORT JSON</button>
         <input type="file" id="impFile" accept=".json" style="display:none" onchange="Store.importJSON(this)">
+        <button class="pri" onclick="Store.showExport()">DATEN ZEIGEN (kopieren)</button>
         <button onclick="Store.wipe()" style="border-color:var(--rd);color:var(--rd)">DB LÖSCHEN</button>
       </div>
       <div class="note">Alles liegt in IndexedDB in diesem Browser-Profil. Kein Server, kein Account.
-      Export regelmäßig sichern – Browserdaten löschen = Daten weg.</div>
+      „DATEN ZEIGEN" füllt das Feld unten – lang drücken → Alles auswählen → Kopieren → in den Chat einfügen.</div>
+      <textarea id="exportBox" readonly placeholder="Hier erscheinen deine Daten zum Kopieren…"
+        style="width:100%;height:120px;margin-top:8px;background:#04060a;color:var(--gn);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:var(--mono);font-size:10px"></textarea>
       <div class="statusline" id="dataStatus"></div>
     </div>
     <div class="panel"><h2>DB-Inhalt</h2><div id="dbStats" class="note">–</div></div>
@@ -315,8 +318,20 @@ const Store = {
   async exportJSON(){
     const dump = {};
     for(const t of ['hr','spo2','steps','sleep','battery','events','daily']) dump[t] = await db.table(t).toArray();
-    Store._download(JSON.stringify(dump,null,1), 'ringos-export-'+dayKey()+'.json', 'application/json');
-    $('dataStatus').textContent = 'Export erstellt.';
+    const json = JSON.stringify(dump);
+    Store._download(json, 'ringos-export-'+dayKey()+'.json', 'application/json');
+    if(navigator.share){ try{ await navigator.share({title:'RingOS Export', text:json}); }catch(e){} }
+    $('dataStatus').textContent = 'Export erstellt (falls kein Download: „DATEN ZEIGEN" nutzen).';
+  },
+  /* Bluefy/iOS lädt keine Dateien – Daten stattdessen ins Textfeld zum Kopieren legen */
+  async showExport(){
+    const dump = {};
+    for(const t of ['hr','spo2','steps','sleep','daily']) dump[t] = await db.table(t).toArray();
+    const box = document.getElementById('exportBox');
+    box.value = JSON.stringify(dump);
+    box.focus(); box.select();
+    try{ await navigator.clipboard.writeText(box.value); $('dataStatus').textContent='In Zwischenablage kopiert ✓ – jetzt in den Chat einfügen.'; }
+    catch(e){ $('dataStatus').textContent='Feld ist markiert – lang drücken → Kopieren → in Chat einfügen.'; }
   },
   async exportCSV(){
     const rows = await db.hr.orderBy('ts').toArray();
