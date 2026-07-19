@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v7.0 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v8.0 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -115,6 +115,10 @@
 
   <!-- ============ COCKPIT ============ -->
   <section class="view on" id="v-cockpit">
+    <div id="warnCard" style="display:none;border-radius:10px;padding:14px 16px;margin-bottom:10px;border:1px solid var(--yl)">
+      <div style="font-weight:700;font-size:14px" id="warnTitle"></div>
+      <div class="note" id="warnBody" style="margin-top:4px"></div>
+    </div>
     <div class="hero" id="heroBox">
       <div style="font-size:10px;letter-spacing:.2em;color:var(--muted);text-transform:uppercase">Erholung heute</div>
       <div class="gauge">
@@ -277,6 +281,17 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       <h2>Wochen-Report (letzte 7 Tage)</h2>
       <div class="minis" id="weekStats" style="grid-template-columns:repeat(2,1fr)"></div>
       <div class="note" id="weekInsight" style="margin-top:10px">–</div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>Schlaf-Regelmäßigkeit <span class="badge">USP</span></h2>
+        <div class="big" id="regScore" style="font-size:34px">–</div>
+        <div class="note" id="regNote">Konstante Bett-/Aufwachzeiten sind ein stärkerer Gesundheitsprädiktor als reine Schlafdauer. Score aus der Streuung deiner letzten Nächte.</div>
+      </div>
+      <div class="panel">
+        <h2>Deine Recovery-Killer <span class="badge">USP</span></h2>
+        <div id="killerList" class="note">Tagge Events (Alkohol, Stress…) im Cockpit – dann ranke ich hier, was DEINE Erholung am meisten kostet.</div>
+      </div>
     </div>
     <div class="panel">
       <h2>Trend <select id="trendRange" onchange="UI.renderAnalyse()">
@@ -821,10 +836,15 @@ const BLE = {
      an (idempotent) – ohne dass du in den iOS-Einstellungen „Gerät ignorieren" musst. */
   async reconnectKnown(silent){
     try{
-      if(!navigator.bluetooth.getDevices){ if(!silent)$('liveStatus').textContent='Auto-Verbinden hier nicht verfügbar – „CONNECT" nutzen.'; return false; }
+      if(!navigator.bluetooth.getDevices){
+        Dbg.log('info','RECONNECT: getDevices() wird von diesem Browser NICHT unterstützt (typisch Bluefy). Auto-Verbinden unmöglich → „CONNECT" nötig.');
+        if(!silent)$('liveStatus').textContent='Auto-Verbinden hier nicht verfügbar (Browser-Limit) – „CONNECT" nutzen.'; return false;
+      }
       const known = await navigator.bluetooth.getDevices();
+      Dbg.log('info','RECONNECT: getDevices() → '+known.length+' Gerät(e): '+known.map(d=>(d.name||'?')+(d.gatt&&d.gatt.connected?'[verbunden]':'')).join(', '));
       const ring = known.find(d=>/R0|COLMI/i.test(d.name||'')) || known[0];
       if(!ring){ if(!silent)$('liveStatus').textContent='Kein gemerkter Ring. Einmal „CONNECT" drücken – danach geht Auto-Verbinden.'; return false; }
+      Dbg.log('info','RECONNECT: docke an "'+(ring.name||'?')+'" an (gatt.connected='+(ring.gatt&&ring.gatt.connected)+')…');
       this.device = ring;
       this.device.removeEventListener?.('gattserverdisconnected', this._dropH);
       this._dropH = ()=>this.onDrop();
@@ -832,8 +852,9 @@ const BLE = {
       this.wantReconnect=true; this.retries=0;
       $('liveStatus').textContent='Docke an bekannten Ring an…';
       await this._open();
+      Dbg.log('info','RECONNECT: erfolgreich ✓');
       return true;
-    }catch(e){ if(!silent)$('liveStatus').textContent='Auto-Verbinden fehlgeschlagen: '+e.message+' – „CONNECT" versuchen.'; return false; }
+    }catch(e){ Dbg.log('err','RECONNECT fehlgeschlagen: '+e.message); if(!silent)$('liveStatus').textContent='Auto-Verbinden fehlgeschlagen: '+e.message+' – „CONNECT" versuchen.'; return false; }
   },
   async write(pkt){
     Dbg.log('tx','» '+hex(pkt));
@@ -1033,6 +1054,65 @@ const Analytics = {
     return Object.entries(out).map(([tag,ds])=>({
       tag, n:ds.length, dRhr:(ds.reduce((a,b)=>a+b,0)/ds.length).toFixed(1)
     }));
+  },
+
+  /* ===== USP 1: Krankheits-/Übertraining-Frühwarnung =====
+     Forschung: erhöhter Ruhepuls + gedrückte HRV 1–2 Tage VOR Symptomen ist ein
+     verlässlicher Frühindikator. Wir prüfen die letzten Tage gegen die Baseline. */
+  async illnessWarning(){
+    const recent=(await db.daily.orderBy('day').reverse().limit(3).toArray()).filter(d=>d.rhr!=null);
+    if(recent.length<1) return null;
+    const bR=await this.baseline(recent[0].day,'rhr');
+    const bH=await this.baseline(recent[0].day,'hrv');
+    if(!bR||bR.n<4) return null;                     // erst ab ~4 Tagen Baseline sinnvoll
+    let flags=0, reasons=[];
+    const rhrUp=recent.filter(d=>d.rhr>bR.mean+bR.sd*1.3);          // deutlich über normal
+    if(rhrUp.length>=2){ flags+=2; reasons.push('Ruhepuls '+rhrUp.length+' Tage erhöht (Ø +'+Math.round(rhrUp.reduce((a,d)=>a+d.rhr-bR.mean,0)/rhrUp.length)+' bpm)'); }
+    else if(recent[0].rhr>bR.mean+bR.sd*1.8){ flags+=1; reasons.push('Ruhepuls heute deutlich erhöht'); }
+    if(bH&&bH.n>=4){
+      const hrvDown=recent.filter(d=>(d.hrvNative??d.hrv)!=null && (d.hrvNative??d.hrv)<bH.mean-bH.sd*1.3);
+      if(hrvDown.length>=2){ flags+=1; reasons.push('HRV mehrere Tage gedrückt'); }
+    }
+    if(flags>=2) return {level:'hoch', reasons};
+    if(flags===1) return {level:'leicht', reasons};
+    return {level:'ok', reasons:[]};
+  },
+
+  /* ===== USP 2: Schlaf-Regelmäßigkeit =====
+     Forschung: die KONSTANZ von Bett-/Aufwachzeit ist ein stärkerer Gesundheits-
+     prädiktor als die reine Dauer. Score aus der Streuung über die letzten 7 Nächte. */
+  async sleepRegularity(){
+    const sl=(await db.sleep.orderBy('day').reverse().limit(7).toArray()).filter(s=>s.bed&&s.wake);
+    if(sl.length<3) return null;
+    const minOfDay=ts=>{ const d=new Date(ts); return (d.getHours()*60+d.getMinutes()+720)%1440; }; // um Mitternacht zentriert
+    const std=arr=>{ const m=arr.reduce((a,b)=>a+b,0)/arr.length; return Math.sqrt(arr.reduce((a,b)=>a+(b-m)**2,0)/arr.length); };
+    const bedStd=std(sl.map(s=>minOfDay(s.bed)));
+    const wakeStd=std(sl.map(s=>minOfDay(s.wake)));
+    const avgStd=(bedStd+wakeStd)/2;                    // Minuten Streuung
+    const score=Math.max(0,Math.min(100,Math.round(100-avgStd/1.2)));  // ~0min→100, ~120min→0
+    return {score, bedStd:Math.round(bedStd), wakeStd:Math.round(wakeStd), n:sl.length};
+  },
+
+  /* ===== USP 3: Recovery-Killer-Ranking =====
+     Was kostet DICH am meisten Erholung? Vergleicht getaggte Events + kurze Nächte
+     gegen den Folgetag-Ruhepuls (höher = schlechtere Erholung). */
+  async recoveryKillers(){
+    const bR=await this.baseline('9999','rhr'); if(!bR) return [];
+    const factors={};
+    const add=(k,v)=>{ (factors[k]=factors[k]||[]).push(v); };
+    const evs=await db.events.toArray();
+    for(const e of evs){
+      const next=new Date(e.day); next.setDate(next.getDate()+1);
+      const d=await db.daily.get(dayKey(next));
+      if(d&&d.rhr!=null) add(e.tag, d.rhr-bR.mean);
+    }
+    // Kurzschlaf-Effekt
+    const sl=await db.sleep.toArray();
+    for(const s of sl){ if(s.minutes<6*60){ const d=await db.daily.get(s.day); if(d&&d.rhr!=null) add('Wenig Schlaf (<6h)', d.rhr-bR.mean); } }
+    return Object.entries(factors)
+      .map(([k,v])=>({tag:k, n:v.length, impact:v.reduce((a,b)=>a+b,0)/v.length}))
+      .filter(x=>x.impact>0.3)
+      .sort((a,b)=>b.impact-a.impact);
   }
 };
 
@@ -1223,6 +1303,20 @@ const UI = {
   async renderCockpit(){
     const day=dayKey(), d=await db.daily.get(day)||{};
     $('cockpitDate').textContent=day;
+    // ---- USP: Krankheits-/Übertraining-Frühwarnung ----
+    const warn=await Analytics.illnessWarning();
+    const wc=$('warnCard');
+    if(warn && warn.level!=='ok'){
+      const hoch=warn.level==='hoch';
+      wc.style.display='block';
+      wc.style.borderColor=hoch?'var(--rd)':'var(--yl)';
+      wc.style.background=hoch?'rgba(248,113,113,.08)':'rgba(250,204,21,.06)';
+      $('warnTitle').textContent=hoch?'⚠ Frühwarnung: dein Körper ist unter Stress':'⚡ Achtung: leichte Warnsignale';
+      $('warnTitle').style.color=hoch?'var(--rd)':'var(--yl)';
+      $('warnBody').textContent=warn.reasons.join(' · ')+'. '+(hoch
+        ? 'Das geht Krankheit/Übertraining oft 1–2 Tage voraus. Heute Ruhe, viel trinken, früh schlafen – kein hartes Training.'
+        : 'Beobachte es. Falls es anhält: Belastung runter, mehr Schlaf.');
+    } else wc.style.display='none';
     // ---- Recovery-Hero-Gauge ----
     // Heutigen Score, sonst live aus der letzten Nacht berechnen (liegt oft unter „gestern")
     let heroD=d, rec=d.readiness;
@@ -1371,6 +1465,19 @@ const UI = {
       if(alk&&+alk.dRhr>1) insight+=' · Nach Alkohol war dein Ruhepuls am Folgetag Ø +'+alk.dRhr+' bpm (schlechtere Erholung).';
     }
     $('weekInsight').textContent=insight;
+    // USP: Schlaf-Regelmäßigkeit
+    const reg=await Analytics.sleepRegularity();
+    if(reg){
+      $('regScore').textContent=reg.score+' /100';
+      $('regScore').style.color=reg.score>=75?'var(--gn)':reg.score>=50?'var(--yl)':'var(--rd)';
+      $('regNote').textContent=(reg.score>=75?'Sehr konstant – top für deinen Rhythmus.':reg.score>=50?'Okay, aber schwankend.':'Unregelmäßig – gleichere Zeiten würden deine Erholung spürbar heben.')
+        +' Bettzeit schwankt ±'+reg.bedStd+' Min, Aufwachen ±'+reg.wakeStd+' Min ('+reg.n+' Nächte).';
+    } else { $('regScore').textContent='–'; }
+    // USP: Recovery-Killer
+    const killers=await Analytics.recoveryKillers();
+    $('killerList').innerHTML = killers.length
+      ? killers.map((k,i)=>`${i+1}. <b>${k.tag}</b>: Ruhepuls-Folgetag +${k.impact.toFixed(1)} bpm <span style="color:var(--muted)">(${k.n}×)</span>`).join('<br>')
+      : 'Noch nicht genug Daten. Tagge Events + trag ein paar Nächte, dann siehst du hier dein persönliches Ranking.';
   },
   async renderAnalyse(){
     await this.renderWeekReport();
