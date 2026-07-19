@@ -82,7 +82,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v4.1 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v4.5 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -180,6 +180,12 @@
         <button onclick="Sync.syncSteps()">SCHRITTE HEUTE</button>
         <button class="pri" onclick="Sync.recompute()">NEU BERECHNEN</button>
       </div>
+      <div class="btnrow">
+        <button class="pri" onclick="BigData.request(39).catch(e=>Sync.log('Schlaf nativ: '+e.message))">🌙 SCHLAFPHASEN (NATIV)</button>
+        <button onclick="BigData.request(42).catch(e=>Sync.log('SpO2 nativ: '+e.message))">SpO2-HISTORIE (NATIV)</button>
+      </div>
+      <div class="note">„SCHLAFPHASEN (NATIV)" holt die echten Schlafstufen (Leicht/Tief/Wach) direkt aus dem Ring –
+      viel genauer als die Puls-Heuristik. Funktioniert nur mit neuerer Firmware (die meisten R02 ab 2024).</div>
       <div class="btnrow">
         <button onclick="Codec.readHrLogSettings()">LOGGING-STATUS LESEN</button>
         <button class="pri" onclick="Codec.setHrLogSettings(true,5)">AUTO-LOGGING AN (5 MIN)</button>
@@ -362,6 +368,10 @@ const Codec = {
   SVC:'6e40fff0-b5a3-f393-e0a9-e50e24dcca9e',
   RX:'6e400002-b5a3-f393-e0a9-e50e24dcca9e',
   TX:'6e400003-b5a3-f393-e0a9-e50e24dcca9e',
+  /* „Big Data"-Kanal (neueres Protokoll) für native Schlafphasen + SpO2-Historie */
+  BIG_SVC:'de5bf728-d711-4e47-af26-65e3012a5dc7',
+  BIG_RX:'de5bf72a-d711-4e47-af26-65e3012a5dc7',
+  BIG_TX:'de5bf729-d711-4e47-af26-65e3012a5dc7',
 
   /* 16-Byte-Frame: [cmd, ...payload(14), checksum]
      checksum = sum(bytes 0..14) & 0xFF  (mod 256!)
@@ -500,6 +510,85 @@ const Codec = {
 };
 Codec.hrParser.reset(); Codec.stepParser.reset();
 
+/* ============ MODUL: big-data (native Schlafphasen + SpO2-Historie) ============
+   Kanal-Frame: [0xBC(magic), dataId, dataLen(LE16), crc16(LE16), ...daten]
+   Request: dataLen=0, crc16=0xFFFF. Antwort kann über mehrere BLE-Pakete kommen →
+   wir sammeln bis (6 + dataLen) Bytes da sind, dann parsen.
+   Sleep (ID 39): sleepDays, dann je Tag: daysAgo, curDayBytes, sleepStart(LE16 min ab Mitternacht),
+   sleepEnd(LE16), dann Perioden-Paare [type, minuten] (2=leicht,3=tief,5=wach). */
+const BigData = {
+  buf:[], want:0,
+  request(dataId){
+    const p=new Uint8Array([0xBC, dataId, 0,0, 0xFF,0xFF]);   // dataLen=0, crc16=0xFFFF
+    this.buf=[]; this.want=0;
+    return BLE.writeBig(p);
+  },
+  onChunk(bytes){
+    Dbg.log('rx','«BIG '+hex(bytes));
+    // Neuer Frame beginnt mit Magic 0xBC
+    if(this.buf.length===0 && bytes[0]===0xBC){
+      this.want = 6 + (bytes[2]|(bytes[3]<<8));
+    }
+    this.buf.push(...bytes);
+    if(this.want && this.buf.length>=this.want){
+      const full=this.buf.slice(0,this.want); this.buf=[]; const w=this.want; this.want=0;
+      this.parse(full);
+    }
+  },
+  parse(b){
+    const id=b[1];
+    if(id===39) return this.parseSleep(b);
+    if(id===42) return this.parseSpo2(b);
+    Dbg.log('info','Big-Data-Antwort id='+id+' (unbehandelt)');
+  },
+  parseSleep(b){
+    let o=6;
+    const days=b[o++]; const results=[];
+    for(let d=0; d<days && o+6<=b.length; d++){
+      const daysAgo=b[o++], curDayBytes=b[o++];
+      const start=b[o]|(b[o+1]<<8); o+=2;
+      const end=b[o]|(b[o+1]<<8); o+=2;
+      const periodsBytes=curDayBytes-4;                 // Rest = Perioden-Paare
+      let deep=0,light=0,awake=0,total=0,wakeups=0,prev=null;
+      for(let k=0;k<periodsBytes && o+1<b.length;k+=2){
+        const type=b[o++], mins=b[o++];
+        if(type===3) deep+=mins;
+        else if(type===2) light+=mins;
+        else if(type===5){ awake+=mins; if(prev!==5&&prev!==null) wakeups++; }
+        if(type===2||type===3) total+=mins;
+        prev=type;
+      }
+      // Datum = heute - daysAgo (lokal)
+      const dt=new Date(); dt.setDate(dt.getDate()-daysAgo); dt.setHours(0,0,0,0);
+      const day=dayKey(dt);
+      const bedTs=dt.getTime()+start*60000, wakeTs=dt.getTime()+end*60000;
+      results.push({day, minutes:total, phases:{deep,light}, awake, wakeups, bed:bedTs, wake:wakeTs, src:'native'});
+    }
+    if(!results.length){ Sync.done('Native Schlafdaten: keine.'); return; }
+    (async()=>{
+      for(const r of results){ await db.sleep.put(r);
+        const dl=await db.daily.get(r.day)||{day:r.day}; dl.sleepMin=r.minutes; await db.daily.put(dl);
+        await Analytics.recomputeDay(r.day); }
+      Sync.done('Native Schlafphasen gespeichert ('+results.length+' Nächte) ✓');
+      UI.renderCockpit(); UI.renderAnalyse();
+    })();
+  },
+  parseSpo2(b){
+    // ID 42: unk, daysAgo, dann Paare [min,max] je Sample (stündlich)
+    let o=6; const unk=b[o++], daysAgo=b[o++]; const samples=[];
+    for(; o+1<b.length; o+=2) samples.push({min:b[o], max:b[o+1]});
+    const valid=samples.filter(s=>s.max>0);
+    if(valid.length){
+      const avg=Math.round(valid.reduce((a,s)=>a+(s.min+s.max)/2,0)/valid.length);
+      const dt=new Date(); dt.setDate(dt.getDate()-daysAgo);
+      db.spo2.put({ts:dt.getTime(), pct:avg, src:'native'});
+      $('cSpo2').textContent=avg+'%';
+      Sync.done('Native SpO2 ('+valid.length+' Werte, Ø '+avg+'%) ✓');
+    } else Sync.done('Native SpO2: keine Werte.');
+    UI.renderCockpit();
+  }
+};
+
 /* ============ MODUL: ble-transport (State-Machine + Reconnect) ============ */
 const BLE = {
   state:'disconnected', device:null, rx:null, wantReconnect:false, retries:0,
@@ -517,7 +606,7 @@ const BLE = {
       this.setState('scanning');
       this.device = await navigator.bluetooth.requestDevice({
         filters:[{services:[Codec.SVC]},{namePrefix:'R0'},{namePrefix:'COLMI'}],
-        optionalServices:[Codec.SVC]
+        optionalServices:[Codec.SVC, Codec.BIG_SVC]
       });
       this.device.addEventListener('gattserverdisconnected',()=>this.onDrop());
       this.wantReconnect=true; this.retries=0;
@@ -530,7 +619,7 @@ const BLE = {
     if(!navigator.bluetooth){ $('liveStatus').textContent='⚠ Kein Web Bluetooth in diesem Browser.'; return; }
     try{
       this.setState('scanning');
-      this.device = await navigator.bluetooth.requestDevice({acceptAllDevices:true, optionalServices:[Codec.SVC]});
+      this.device = await navigator.bluetooth.requestDevice({acceptAllDevices:true, optionalServices:[Codec.SVC, Codec.BIG_SVC]});
       this.device.addEventListener('gattserverdisconnected',()=>this.onDrop());
       this.wantReconnect=true; this.retries=0;
       await this._open();
@@ -544,11 +633,27 @@ const BLE = {
     const tx = await svc.getCharacteristic(Codec.TX);
     await tx.startNotifications();
     tx.addEventListener('characteristicvaluechanged', ev=>Codec.onFrame(new Uint8Array(ev.target.value.buffer)));
+    // Big-Data-Kanal (native Schlafphasen/SpO2) – optional, nicht jede Firmware hat ihn
+    this.bigRx=null;
+    try{
+      const bsvc = await server.getPrimaryService(Codec.BIG_SVC);
+      this.bigRx = await bsvc.getCharacteristic(Codec.BIG_RX);
+      const btx = await bsvc.getCharacteristic(Codec.BIG_TX);
+      await btx.startNotifications();
+      btx.addEventListener('characteristicvaluechanged', ev=>BigData.onChunk(new Uint8Array(ev.target.value.buffer)));
+      Dbg.log('info','Big-Data-Kanal aktiv → native Schlafphasen verfügbar.');
+    }catch(e){ Dbg.log('info','Kein Big-Data-Kanal (ältere Firmware) – nutze HR-Schlaf-Heuristik.'); }
     this.setState('ready');
     $('stDev').textContent=this.device.name||'?';
     $('liveStatus').textContent='Verbunden ✓';
     await Codec.sendBattery();
     await Codec.sendSetTime();     // Ring-Uhr bei jedem Connect stellen → Logs stimmen
+  },
+  async writeBig(bytes){
+    Dbg.log('tx','»BIG '+hex(bytes));
+    if(Sim.active) return Sim.handleBig(bytes);
+    if(!this.bigRx) throw new Error('Big-Data-Kanal nicht verfügbar');
+    await this.bigRx.writeValue(bytes);
   },
   onDrop(){
     this.setState('disconnected');
@@ -802,6 +907,30 @@ const Sim = {
     if(this.active){ BLE.setState('ready'); $('stDev').textContent='SIM_R02'; $('stBat').textContent='81%'; }
     else { BLE.setState('disconnected'); clearInterval(this.liveIv); }
   },
+  handleBig(bytes){   // simuliert Big-Data-Antworten (Schlafphasen/SpO2)
+    const id=bytes[1];
+    if(id===39){
+      // 1 Nacht, daysAgo=0, Start=1380 (23:00), Ende=420 (07:00), Perioden
+      const periods=[2,40, 3,60, 2,30, 5,10, 3,50, 2,45, 5,5, 2,60, 3,40, 2,45]; // type,min Paare
+      const curDayBytes=4+periods.length;
+      const payload=[0,      // wird zu daysAgo? nein: erst sleepDays
+        ];
+      const days=1;
+      const body=[days, 0/*daysAgo*/, curDayBytes, 1380&0xff,(1380>>8)&0xff, 420&0xff,(420>>8)&0xff, ...periods];
+      const dlen=body.length;
+      const frame=[0xBC,39, dlen&0xff,(dlen>>8)&0xff, 0xff,0xff, ...body];
+      // in 20-Byte-Chunks streamen (wie echtes BLE)
+      for(let i=0;i<frame.length;i+=20)
+        setTimeout(()=>BigData.onChunk(new Uint8Array(frame.slice(i,i+20))), 60+i*3);
+    }
+    if(id===42){
+      const samples=[]; for(let i=0;i<12;i++){ const mn=94+Math.floor(Math.random()*3); samples.push(mn, mn+2); }
+      const body=[0,0, ...samples]; const dlen=body.length;
+      const frame=[0xBC,42, dlen&0xff,(dlen>>8)&0xff,0xff,0xff, ...body];
+      for(let i=0;i<frame.length;i+=20)
+        setTimeout(()=>BigData.onChunk(new Uint8Array(frame.slice(i,i+20))), 60+i*3);
+    }
+  },
   handle(pkt){   // beantwortet Frames wie ein echter Ring
     const cmd=pkt[0];
     if(cmd===0x03) setTimeout(()=>Codec.onFrame(Codec.make(0x03,[81,0])),80);
@@ -911,7 +1040,8 @@ const UI = {
       $('slTimes').textContent=fmtT(sl.bed)+' → '+fmtT(sl.wake);
       const q=sl.minutes>=420?'Gut ausgeschlafen':sl.minutes>=360?'Solide Nacht':sl.minutes>=270?'Etwas kurz':'Wenig Schlaf';
       const datInfo=sl.day===day?'':' (Nacht auf '+sl.day+')';
-      $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.'+datInfo;
+      const quelle=sl.src==='native'?' · aus Ring-Schlafphasen':' · aus Puls-Heuristik';
+      $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.'+datInfo+quelle;
     } else {
       // Diagnose: wie viele HR-Punkte in der letzten Nacht?
       const nStart=new Date(day+'T00:00:00').getTime()-4*3600000;
@@ -973,7 +1103,7 @@ const UI = {
     this.dbCount();
   }
 };
-window.UI=UI; window.BLE=BLE; window.Codec=Codec; window.Store=Store; window.Sync=Sync; window.Dbg=Dbg; window.Sim=Sim;
+window.UI=UI; window.BLE=BLE; window.Codec=Codec; window.Store=Store; window.Sync=Sync; window.Dbg=Dbg; window.Sim=Sim; window.BigData=BigData;
 
 /* Boot */
 window.onerror=(msg,src,line)=>{ try{ Dbg.log('err','JS-FEHLER: '+msg+' (Zeile '+line+')'); }catch(e){} };
