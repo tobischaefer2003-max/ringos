@@ -82,7 +82,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v4.5 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v5.0 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -256,8 +256,10 @@
         <tr><td>0x15</td><td>HR-Log (Tag, 288×5min)</td><td class="ok">verifiziert</td></tr>
         <tr><td>0x43</td><td>Schritte/Sport (Tag)</td><td class="ok">verifiziert</td></tr>
         <tr><td>0x69/0x6A</td><td>Realtime Start/Stop (kind 1=HR, 3=SpO2)</td><td class="ok">verifiziert</td></tr>
-        <tr><td>0x69 kind 10</td><td>Realtime HRV</td><td class="unv">unverifiziert</td></tr>
-        <tr><td>0xBC?</td><td>Schlaf-Logs</td><td class="unv">unverifiziert → hier erforschen</td></tr>
+        <tr><td>0x16</td><td>HR-Logging an/aus + Intervall</td><td class="ok">verifiziert</td></tr>
+        <tr><td>0xBC/39</td><td>Big-Data Schlafphasen (Leicht/Tief/Wach)</td><td class="ok">implementiert</td></tr>
+        <tr><td>0xBC/42</td><td>Big-Data SpO2-Historie</td><td class="ok">implementiert</td></tr>
+        <tr><td>57 / 55</td><td>HRV-Historie / Stress (split array)</td><td class="unv">nächster Ausbau</td></tr>
         <tr><td>–</td><td>Raw PPG/Accel</td><td class="unv">nur ATC_RF03-Firmware</td></tr>
       </table>
     </div>
@@ -648,6 +650,9 @@ const BLE = {
     $('liveStatus').textContent='Verbunden ✓';
     await Codec.sendBattery();
     await Codec.sendSetTime();     // Ring-Uhr bei jedem Connect stellen → Logs stimmen
+    // Automatisch letzte Nacht + heutigen Puls holen → morgens reicht CONNECT
+    if(this.bigRx){ setTimeout(()=>BigData.request(39).catch(()=>{}), 1200); }
+    setTimeout(()=>Sync.syncDay(0), 2200);
   },
   async writeBig(bytes){
     Dbg.log('tx','»BIG '+hex(bytes));
@@ -1041,7 +1046,10 @@ const UI = {
       const q=sl.minutes>=420?'Gut ausgeschlafen':sl.minutes>=360?'Solide Nacht':sl.minutes>=270?'Etwas kurz':'Wenig Schlaf';
       const datInfo=sl.day===day?'':' (Nacht auf '+sl.day+')';
       const quelle=sl.src==='native'?' · aus Ring-Schlafphasen':' · aus Puls-Heuristik';
-      $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.'+datInfo+quelle;
+      // 7-Tage-Schnitt
+      const allSleep=await db.sleep.orderBy('day').reverse().limit(7).toArray();
+      const avg=allSleep.length>1?' · 7-Tage-Schnitt '+(allSleep.reduce((a,s)=>a+s.minutes,0)/allSleep.length/60).toFixed(1)+'h':'';
+      $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.'+datInfo+quelle+avg;
     } else {
       // Diagnose: wie viele HR-Punkte in der letzten Nacht?
       const nStart=new Date(day+'T00:00:00').getTime()-4*3600000;
