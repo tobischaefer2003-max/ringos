@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v6.2 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v6.3 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -206,8 +206,9 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
           <button onclick="Codec.sendBattery()">BATTERIE</button>
           <button onclick="Codec.sendSetTime()">ZEIT SETZEN</button>
         </div>
-        <div class="note">State-Machine: <b id="smState">disconnected</b><br>
-        Auto-Reconnect: <span id="smRetry">aus</span></div>
+        <div class="note">State-Machine: <b id="smState">disconnected</b> · Auto-Reconnect: <span id="smRetry">aus</span><br>
+        <b>iPhone-Tipp:</b> App einfach schließen (NICHT „TRENNEN") – beim Wiederöffnen dockt RingOS
+        automatisch an. Nur wenn's mal hakt: „CONNECT".</div>
         <div class="statusline" id="liveStatus"></div>
       </div>
     </div>
@@ -792,19 +793,25 @@ const BLE = {
     if(this.device&&this.device.gatt.connected) this.device.gatt.disconnect();
     this.setState('disconnected'); $('smRetry').textContent='aus';
   },
-  /* Schnell-Verbinden ohne Auswahl-Popup: nutzt bereits erlaubte Geräte (navigator.bluetooth.getDevices).
-     Löst das „muss jedes Mal neu koppeln"-Problem in Bluefy/Chrome. */
-  async reconnectKnown(){
+  /* Schnell-Verbinden ohne Auswahl-Popup: nutzt bereits erlaubte Geräte (getDevices).
+     WICHTIG für iOS/Bluefy: Der Ring bleibt nach App-Schließen auf iOS-Ebene verbunden.
+     getDevices() liefert ihn zurück, und gatt.connect() dockt an die bestehende Verbindung
+     an (idempotent) – ohne dass du in den iOS-Einstellungen „Gerät ignorieren" musst. */
+  async reconnectKnown(silent){
     try{
-      if(!navigator.bluetooth.getDevices){ $('liveStatus').textContent='Schnell-Verbinden hier nicht verfügbar – normal CONNECT nutzen.'; return; }
+      if(!navigator.bluetooth.getDevices){ if(!silent)$('liveStatus').textContent='Auto-Verbinden hier nicht verfügbar – „CONNECT" nutzen.'; return false; }
       const known = await navigator.bluetooth.getDevices();
       const ring = known.find(d=>/R0|COLMI/i.test(d.name||'')) || known[0];
-      if(!ring){ $('liveStatus').textContent='Kein gemerktes Gerät – einmal normal CONNECT.'; return; }
+      if(!ring){ if(!silent)$('liveStatus').textContent='Kein gemerkter Ring. Einmal „CONNECT" drücken – danach geht Auto-Verbinden.'; return false; }
       this.device = ring;
-      this.device.addEventListener('gattserverdisconnected',()=>this.onDrop());
+      this.device.removeEventListener?.('gattserverdisconnected', this._dropH);
+      this._dropH = ()=>this.onDrop();
+      this.device.addEventListener('gattserverdisconnected', this._dropH);
       this.wantReconnect=true; this.retries=0;
+      $('liveStatus').textContent='Docke an bekannten Ring an…';
       await this._open();
-    }catch(e){ $('liveStatus').textContent='Schnell-Verbinden fehlgeschlagen: '+e.message; }
+      return true;
+    }catch(e){ if(!silent)$('liveStatus').textContent='Auto-Verbinden fehlgeschlagen: '+e.message+' – „CONNECT" versuchen.'; return false; }
   },
   async write(pkt){
     Dbg.log('tx','» '+hex(pkt));
@@ -1328,15 +1335,21 @@ window.onerror=(msg,src,line)=>{ try{ Dbg.log('err','JS-FEHLER: '+msg+' (Zeile '
 Dbg.log('info','RingOS v3.2 geladen – Fehler-Trap aktiv');
 UI.initTags(); UI.renderCockpit(); UI.dbCount();
 
-/* Sauberes Trennen beim App-Verlassen/Schließen → Ring hängt nicht auf OS-Ebene fest */
-window.addEventListener('pagehide', ()=>{ try{ if(BLE.device&&BLE.device.gatt.connected) BLE.device.gatt.disconnect(); }catch(e){} });
-document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState==='hidden' && BLE.device && BLE.device.gatt.connected){
-    try{ BLE.wantReconnect=false; BLE.device.gatt.disconnect(); }catch(e){}
+/* iOS/Bluefy-Strategie: Verbindung NICHT beim Schließen trennen (iOS hält den Ring eh),
+   sondern beim Öffnen wieder andocken. Das umgeht das „Gerät ignorieren"-Müssen.
+   Beim Zurückkommen in den Vordergrund automatisch neu andocken, mit ein paar Versuchen. */
+async function autoReconnectLoop(){
+  if(BLE.state==='ready') return;
+  for(let i=0;i<3;i++){
+    const ok=await BLE.reconnectKnown(true);
+    if(ok) return;
+    await new Promise(r=>setTimeout(r,1200));
   }
+}
+window.addEventListener('load', ()=>setTimeout(autoReconnectLoop, 700));
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible') setTimeout(autoReconnectLoop, 400);
 });
-/* Beim Öffnen automatisch zum gemerkten Ring verbinden – kein Popup nötig */
-window.addEventListener('load', ()=>{ setTimeout(()=>BLE.reconnectKnown().catch(()=>{}), 800); });
 /* PWA-Install: braucht Hosting (https) + separate sw.js – als lokale Datei läuft alles,
    nur der "Installieren"-Prompt fehlt. Beim GitHub-Pages-Deploy legen wir sw.js daneben. */
 </script>
