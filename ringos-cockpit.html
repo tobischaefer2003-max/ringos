@@ -44,6 +44,28 @@
   .big small{font-size:13px;color:var(--muted);font-weight:400}
   .unit{color:var(--muted);font-size:11px}
 
+  /* Recovery-Hero */
+  .hero{background:linear-gradient(160deg,var(--panel),#0c1119);border:1px solid var(--border);
+    border-radius:10px;padding:22px 18px;margin-bottom:10px;text-align:center;position:relative;overflow:hidden}
+  .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background:radial-gradient(340px 200px at 50% -10%,var(--glow,rgba(52,211,153,.14)),transparent)}
+  .gauge{position:relative;width:200px;height:200px;margin:4px auto 6px}
+  .gauge svg{transform:rotate(-90deg)}
+  .gauge .fg{transition:stroke-dashoffset 1.1s cubic-bezier(.4,0,.2,1), stroke .6s}
+  .gauge .ctr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .gauge .num{font-size:56px;font-weight:800;line-height:1;letter-spacing:-.02em}
+  .gauge .pct{font-size:13px;color:var(--muted);letter-spacing:.15em;margin-top:2px}
+  .hero .verdict{font-size:17px;font-weight:700;margin-top:4px}
+  .hero .advice{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5;max-width:420px;margin-left:auto;margin-right:auto}
+  .factors{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+  .factor{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:96px}
+  .factor .fl{font-size:10px;color:var(--muted);letter-spacing:.05em}
+  .factor .fv{font-size:16px;font-weight:700;margin-top:2px}
+  .factor .fb{font-size:10px;margin-top:2px}
+  .up{color:var(--gn)} .down{color:var(--rd)} .flat{color:var(--muted)}
+  details.formwrap{margin-top:12px;text-align:left}
+  details.formwrap summary{cursor:pointer;font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+
   button{font-family:var(--mono);font-size:12px;background:var(--panel2);color:var(--text);
     border:1px solid var(--border);border-radius:4px;padding:8px 12px;cursor:pointer}
   button:hover{border-color:var(--cy);color:var(--bright)}
@@ -82,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v5.3 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v6.0 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -93,18 +115,30 @@
 
   <!-- ============ COCKPIT ============ -->
   <section class="view on" id="v-cockpit">
-    <div class="grid">
-      <div class="panel">
-        <h2>Readiness</h2>
-        <div class="score" id="rdScore">--</div>
-        <div class="note" id="rdLabel">Noch keine Baseline. Sync ausführen oder Simulator nutzen (Tab DEBUG).</div>
-        <div class="formula" id="rdFormula">READINESS = 50
-+ 2.0 × (RHR_baseline − RHR_heute)     [Ruhepuls vs. 30d-Ø]
-+ 0.5 × (HRV_heute − HRV_baseline)     [RMSSD-Näherung]
-+ 0.15 × (Schlaf_min − 420) / 6        [vs. 7h-Ziel]
-− 3.0 × Anomalie-Flags                 [z-Score > 2σ]
-→ geklemmt auf 0–100. Keine Blackbox.</div>
+    <div class="hero" id="heroBox">
+      <div style="font-size:10px;letter-spacing:.2em;color:var(--muted);text-transform:uppercase">Erholung heute</div>
+      <div class="gauge">
+        <svg width="200" height="200">
+          <circle cx="100" cy="100" r="86" fill="none" stroke="var(--panel2)" stroke-width="14"/>
+          <circle id="hgFg" class="fg" cx="100" cy="100" r="86" fill="none" stroke="var(--gn)" stroke-width="14"
+            stroke-linecap="round" stroke-dasharray="540.4" stroke-dashoffset="540.4"/>
+        </svg>
+        <div class="ctr"><div class="num" id="hgNum">--</div><div class="pct">% ERHOLT</div></div>
       </div>
+      <div class="verdict" id="hgVerdict">Verbinde deinen Ring für deinen Erholungs-Score</div>
+      <div class="advice" id="hgAdvice">Morgens: CONNECT drücken – dann berechnet RingOS aus Schlaf, Ruhepuls und HRV, wie erholt du bist.</div>
+      <div class="factors" id="hgFactors"></div>
+      <details class="formwrap"><summary>Wie wird das berechnet?</summary>
+        <div class="formula" id="rdFormula">ERHOLUNG basiert transparent auf:
+· Schlaf (Dauer + Tiefschlaf-Anteil)        ~40 %
+· Ruhepuls vs. deine persönliche Baseline   ~35 %
+· HRV vs. deine Baseline                     ~25 %
+Ohne Baseline (erste Tage): Schätzung aus Absolutwerten.
+Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</div>
+      </details>
+    </div>
+    <span id="rdScore" style="display:none"></span><span id="rdLabel" style="display:none"></span>
+    <div class="grid">
       <div class="panel">
         <h2>Heute</h2>
         <div class="kv"><span class="k">Ruhepuls (Nacht-Minimum-Ø)</span><span class="v" id="cRhr">–</span></div>
@@ -718,8 +752,9 @@ const BLE = {
     // Automatisch letzte Nacht + heutigen Puls holen → morgens reicht CONNECT
     if(this.bigRx){ setTimeout(()=>BigData.request(39).catch(()=>{}), 1200); }
     setTimeout(()=>Sync.syncDay(0), 2200);
-    setTimeout(()=>Codec.reqHrv().catch(()=>{}), 3400);      // echte HRV
-    setTimeout(()=>Codec.reqStress().catch(()=>{}), 4200);   // Stress-Level
+    /* HRV/Stress-Auto-Abruf deaktiviert – Firmware antwortet (noch) nicht auf 57/55.
+       Manuell testbar über die Buttons im SYNC-Tab; sobald ein echtes Antwort-Frame
+       im DEBUG-Log auftaucht, passen wir den Parser an. */
   },
   async writeBig(bytes){
     Dbg.log('tx','»BIG '+hex(bytes));
@@ -884,14 +919,48 @@ const Analytics = {
     const sd=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length)||1;
     return {mean,sd,n:vals.length};
   },
+  /* Erholungs-Score aus 3 Komponenten (Schlaf 40 %, Ruhepuls 35 %, HRV 25 %).
+     Cold-Start: ohne Baseline aus Absolutwerten geschätzt. Liefert auch die Faktoren
+     für die UI-Aufschlüsselung. */
   async readiness(day,d){
+    const f=await this.recoveryFactors(day,d);
+    return f.score;
+  },
+  async recoveryFactors(day,d){
     const bR=await this.baseline(day,'rhr'), bH=await this.baseline(day,'hrv');
-    let score=50, anomalies=0;
-    if(bR&&d.rhr!=null){ score+=2.0*(bR.mean-d.rhr); if(Math.abs(d.rhr-bR.mean)/bR.sd>2) anomalies++; }
-    if(bH&&d.hrv!=null){ score+=0.5*(d.hrv-bH.mean); if(Math.abs(d.hrv-bH.mean)/bH.sd>2) anomalies++; }
-    if(d.sleepMin!=null) score+=0.15*(d.sleepMin-420)/6;
-    score-=3*anomalies;
-    return Math.max(0,Math.min(100,Math.round(score)));
+    const sleep=await db.sleep.get(day);
+    const factors=[]; const parts=[];
+    // Schlaf
+    if(sleep){
+      const hrs=sleep.minutes/60;
+      let s=Math.max(0,Math.min(100,100-Math.abs(hrs-8)*13));
+      const deepPct=sleep.phases.deep/Math.max(sleep.minutes,1);
+      s=Math.max(0,Math.min(100, s + (deepPct>=0.13?6:-8)));
+      parts.push([s,0.40]);
+      factors.push({label:'Schlaf', value:hrs.toFixed(1)+'h', dir: hrs>=7.5?'up':hrs>=6?'flat':'down',
+        note: hrs>=7.5?'ausreichend':hrs>=6?'okay':'zu kurz'});
+    }
+    // Ruhepuls
+    if(d.rhr!=null){
+      let s; let note;
+      if(bR){ s=50+(bR.mean-d.rhr)*6; note=(d.rhr<bR.mean?'unter':d.rhr>bR.mean?'über':'auf')+' Baseline'; }
+      else { s=50+(60-d.rhr)*3; note='(Baseline baut sich auf)'; }
+      s=Math.max(0,Math.min(100,s)); parts.push([s,0.35]);
+      factors.push({label:'Ruhepuls', value:d.rhr+' bpm', dir: bR?(d.rhr<bR.mean?'up':d.rhr>bR.mean+2?'down':'flat'):'flat', note});
+    }
+    // HRV
+    const hrv=d.hrvNative??d.hrv;
+    if(hrv!=null){
+      let s; let note;
+      if(bH){ s=50+(hrv-bH.mean)*2; note=(hrv>bH.mean?'über':'unter')+' Baseline'; }
+      else { s=Math.max(20,Math.min(90,20+hrv)); note='(Baseline baut sich auf)'; }
+      s=Math.max(0,Math.min(100,s)); parts.push([s,0.25]);
+      factors.push({label:'HRV', value:hrv, dir: bH?(hrv>bH.mean?'up':'down'):'flat', note});
+    }
+    if(!parts.length) return {score:null, factors:[]};
+    const wsum=parts.reduce((a,[,w])=>a+w,0);
+    const score=Math.max(1,Math.min(99,Math.round(parts.reduce((a,[s,w])=>a+s*w,0)/wsum)));
+    return {score, factors};
   },
   async anomalies(days=30){
     const list=[], all=await db.daily.orderBy('day').reverse().limit(days).toArray();
@@ -1105,9 +1174,35 @@ const UI = {
   async renderCockpit(){
     const day=dayKey(), d=await db.daily.get(day)||{};
     $('cockpitDate').textContent=day;
-    $('rdScore').textContent=d.readiness??'--';
-    $('rdScore').style.color=d.readiness>=67?'var(--gn)':d.readiness>=34?'var(--yl)':d.readiness!=null?'var(--rd)':'var(--muted)';
-    if(d.readiness!=null) $('rdLabel').textContent=d.readiness>=67?'GRÜN → hohe Belastung ok':d.readiness>=34?'GELB → moderat':'ROT → Regeneration';
+    // ---- Recovery-Hero-Gauge ----
+    const rec=d.readiness;
+    const col = rec==null?'var(--muted)':rec>=67?'#34d399':rec>=40?'#facc15':'#f87171';
+    const glow= rec==null?'rgba(90,102,120,.1)':rec>=67?'rgba(52,211,153,.16)':rec>=40?'rgba(250,204,21,.14)':'rgba(248,113,113,.14)';
+    const C=540.4;
+    $('hgFg').style.strokeDashoffset = C*(1-(rec||0)/100);
+    $('hgFg').style.stroke = col;
+    $('hgNum').textContent = rec??'--';
+    $('hgNum').style.color = col;
+    $('heroBox').style.setProperty('--glow', glow);
+    if(rec!=null){
+      $('hgVerdict').textContent = rec>=67?'Voll erholt – guter Tag für Vollgas 💪':rec>=40?'Mittel erholt – moderat trainieren':'Wenig erholt – heute Regeneration 😴';
+      $('hgVerdict').style.color = col;
+      $('hgAdvice').textContent = rec>=67?'Dein Körper ist bereit für hohe Belastung. Nutz den Tag für dein hartes Training.'
+        :rec>=40?'Solide Basis, aber nicht auf 100 %. Moderates Training ist okay – hör auf deinen Körper.'
+        :'Ruhepuls/Schlaf zeigen: dein Körper braucht Erholung. Heute besser Spaziergang, Mobility, früh ins Bett.';
+      // Faktoren-Aufschlüsselung
+      const {factors}=await Analytics.recoveryFactors(day,d);
+      $('hgFactors').innerHTML = factors.map(f=>{
+        const arrow=f.dir==='up'?'▲':f.dir==='down'?'▼':'▪';
+        return `<div class="factor"><div class="fl">${f.label}</div><div class="fv">${f.value}</div>`+
+               `<div class="fb ${f.dir}">${arrow} ${f.note}</div></div>`;
+      }).join('');
+    } else {
+      $('hgVerdict').textContent='Noch kein Erholungs-Score';
+      $('hgVerdict').style.color='var(--text)';
+      $('hgAdvice').textContent='Ring nachts tragen, morgens CONNECT drücken – dann erscheint hier „Du bist X % erholt" mit Aufschlüsselung.';
+      $('hgFactors').innerHTML='';
+    }
     $('cRhr').textContent=d.rhr??'–';
     $('cHrv').textContent = d.hrvNative!=null ? d.hrvNative+' (nativ)' : (d.hrv??'–');
     $('cStress').textContent = d.stress!=null ? d.stress+' /100'+(d.stress<40?' 🟢':d.stress<70?' 🟡':' 🔴') : '–';
