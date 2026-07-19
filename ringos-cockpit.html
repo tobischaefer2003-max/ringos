@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v6.0 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v6.1 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -155,6 +155,18 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       <h2>Schlaf letzte Nacht 🌙</h2>
       <div class="score" id="slHours" style="color:var(--pu)">–</div>
       <div class="note" id="slSummary">Noch keine Schlafdaten. Ring nachts tragen, morgens „HEUTE SYNCEN", dann „NEU BERECHNEN".</div>
+      <div id="hypno" style="display:none;margin:12px 0 4px">
+        <div style="display:flex;height:44px;border-radius:6px;overflow:hidden;border:1px solid var(--border)" id="hypnoBar"></div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:3px">
+          <span id="hypnoStart"></span>
+          <span style="display:flex;gap:10px">
+            <span><span style="color:#a78bfa">■</span> Tief</span>
+            <span><span style="color:#60a5fa">■</span> Leicht</span>
+            <span><span style="color:#f87171">■</span> Wach</span>
+          </span>
+          <span id="hypnoEnd"></span>
+        </div>
+      </div>
       <div class="kv"><span class="k">Tiefschlaf</span><span class="v" id="slDeep">–</span></div>
       <div class="kv"><span class="k">Leichtschlaf</span><span class="v" id="slLight">–</span></div>
       <div class="kv"><span class="k">Aufgewacht</span><span class="v" id="slWake">–</span></div>
@@ -651,8 +663,10 @@ const BigData = {
       const end=b[o]|(b[o+1]<<8); o+=2;
       const periodsBytes=curDayBytes-4;                 // Rest = Perioden-Paare
       let deep=0,light=0,awake=0,total=0,wakeups=0,prev=null;
+      const periods=[];                                 // Sequenz für Hypnogramm
       for(let k=0;k<periodsBytes && o+1<b.length;k+=2){
         const type=b[o++], mins=b[o++];
+        periods.push({type,mins});
         if(type===3) deep+=mins;
         else if(type===2) light+=mins;
         else if(type===5){ awake+=mins; if(prev!==5&&prev!==null) wakeups++; }
@@ -663,7 +677,7 @@ const BigData = {
       const dt=new Date(); dt.setDate(dt.getDate()-daysAgo); dt.setHours(0,0,0,0);
       const day=dayKey(dt);
       const bedTs=dt.getTime()+start*60000, wakeTs=dt.getTime()+end*60000;
-      results.push({day, minutes:total, phases:{deep,light}, awake, wakeups, bed:bedTs, wake:wakeTs, src:'native'});
+      results.push({day, minutes:total, phases:{deep,light}, awake, wakeups, bed:bedTs, wake:wakeTs, periods, src:'native'});
     }
     if(!results.length){ Sync.done('Native Schlafdaten: keine.'); return; }
     (async()=>{
@@ -1227,6 +1241,15 @@ const UI = {
       const allSleep=await db.sleep.orderBy('day').reverse().limit(7).toArray();
       const avg=allSleep.length>1?' · 7-Tage-Schnitt '+(allSleep.reduce((a,s)=>a+s.minutes,0)/allSleep.length/60).toFixed(1)+'h':'';
       $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.'+datInfo+quelle+avg;
+      // Hypnogramm (farbiger Zeitverlauf der Schlafphasen)
+      if(sl.periods && sl.periods.length){
+        const col={2:'#60a5fa',3:'#a78bfa',5:'#f87171',1:'#232b3b',0:'#232b3b'};
+        const tot=sl.periods.reduce((a,p)=>a+p.mins,0)||1;
+        $('hypnoBar').innerHTML=sl.periods.map(p=>
+          `<div title="${p.type===3?'Tief':p.type===2?'Leicht':p.type===5?'Wach':'–'} ${p.mins}min" style="width:${p.mins/tot*100}%;background:${col[p.type]||'#232b3b'}"></div>`).join('');
+        $('hypnoStart').textContent=fmtT(sl.bed); $('hypnoEnd').textContent=fmtT(sl.wake);
+        $('hypno').style.display='block';
+      } else $('hypno').style.display='none';
     } else {
       // Diagnose: wie viele HR-Punkte in der letzten Nacht?
       const nStart=new Date(day+'T00:00:00').getTime()-4*3600000;
