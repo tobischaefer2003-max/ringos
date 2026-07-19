@@ -82,7 +82,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v3.8 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v4.0 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -611,7 +611,9 @@ const Sync = {
     r.rates.forEach((bpm,i)=>{ if(bpm>0) rows.push({ts:base+i*5*60000, bpm, src:'log'}); });
     await Store.putHrBulk(rows);
     this.log('→ '+rows.length+' Messpunkte gespeichert ('+dayKey(r.ts)+')');
+    /* robust: alle betroffenen lokalen Tage neu berechnen (Zeitzonen-sicher) */
     await Analytics.recomputeDay(dayKey(r.ts));
+    await Analytics.recomputeDay(dayKey());          // auch „heute" lokal
     UI.renderCockpit(); UI.renderAnalyse();
     this.done('Sync ok: '+dayKey(r.ts));
   },
@@ -880,9 +882,10 @@ const UI = {
     $('cHrv').textContent=d.hrv??'–';
     $('cSteps').textContent=d.steps??'–';
     $('cCal').textContent=d.cal?d.cal+' kcal':'–';
-    const sl=await db.sleep.get(day);
+    // Schlaf: heute, sonst zuletzt erkannte Nacht (robust gegen Zeitzonen-/Tageswechsel)
+    let sl=await db.sleep.get(day);
+    if(!sl){ const allSl=await db.sleep.orderBy('day').toArray(); sl=allSl[allSl.length-1]||null; }
     $('cSleep').textContent=sl?(sl.minutes/60).toFixed(1)+'h (tief '+(sl.phases.deep/60).toFixed(1)+'h)':'–';
-    // Schlaf-Karte in Worten
     const fmtT=ts=>ts?new Date(ts).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'?';
     const fmtH=m=>{const h=Math.floor(m/60),mm=m%60; return h+' Std '+mm+' Min';};
     if(sl){
@@ -892,10 +895,16 @@ const UI = {
       $('slWake').textContent=(sl.wakeups||0)+'× aufgewacht';
       $('slTimes').textContent=fmtT(sl.bed)+' → '+fmtT(sl.wake);
       const q=sl.minutes>=420?'Gut ausgeschlafen':sl.minutes>=360?'Solide Nacht':sl.minutes>=270?'Etwas kurz':'Wenig Schlaf';
-      $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.';
+      const datInfo=sl.day===day?'':' (Nacht auf '+sl.day+')';
+      $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.'+datInfo;
     } else {
+      // Diagnose: wie viele HR-Punkte in der letzten Nacht?
+      const nStart=new Date(day+'T00:00:00').getTime()-4*3600000;
+      const nRows=await db.hr.where('ts').between(nStart, nStart+16*3600000).toArray();
       $('slHours').textContent='–';
-      $('slSummary').textContent='Noch keine Schlafdaten für heute. „HEUTE SYNCEN" → dann „NEU BERECHNEN".';
+      $('slSummary').textContent = nRows.length<12
+        ? 'Zu wenige Nacht-Messpunkte ('+nRows.length+'). Ring saß evtl. locker oder Logging lief noch nicht. Heute Nacht eng tragen.'
+        : nRows.length+' Messpunkte da, aber kein klares Schlaffenster erkannt. Drück „NEU BERECHNEN" im SYNC-Tab.';
       ['slDeep','slLight','slWake','slTimes'].forEach(id=>$(id).textContent='–');
     }
     const an=await Analytics.anomalies(7);
