@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v6.3 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v7.0 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -138,6 +138,23 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       </details>
     </div>
     <span id="rdScore" style="display:none"></span><span id="rdLabel" style="display:none"></span>
+    <div class="grid">
+      <div class="panel">
+        <h2>Strain-Coach heute <i class="badge" id="strainBadge"></i></h2>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="big" id="strainNow" style="font-size:34px">0.0</span><span class="unit">/ Ziel <b id="strainTarget">–</b></span></div>
+        <div style="height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;margin:8px 0">
+          <div id="strainBar" style="height:100%;width:0;background:var(--bl);transition:width .8s"></div>
+        </div>
+        <div class="note" id="strainAdvice">Belastung aus Workouts. Nach dem ersten Erholungs-Score erscheint dein Tagesziel.</div>
+      </div>
+      <div class="panel">
+        <h2>Schlaf-Coach 🌙</h2>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="big" id="sleepNeed" style="font-size:34px">–</span><span class="unit">empfohlen heute Nacht</span></div>
+        <div class="kv" style="margin-top:6px"><span class="k">Ideal ins Bett</span><span class="v" id="bedtime">–</span></div>
+        <div class="kv"><span class="k">Für Aufwachen</span><span class="v"><input type="time" id="wakeGoal" value="07:00" style="width:90px;padding:4px 6px" onchange="UI.renderCockpit()"></span></div>
+        <div class="note" id="sleepCoachNote">Empfohlene Schlafdauer steigt mit deiner Belastung (Strain) und sinkt bei guter Erholung.</div>
+      </div>
+    </div>
     <div class="grid">
       <div class="panel">
         <h2>Heute</h2>
@@ -256,6 +273,11 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
 
   <!-- ============ ANALYSE ============ -->
   <section class="view" id="v-analyse">
+    <div class="panel">
+      <h2>Wochen-Report (letzte 7 Tage)</h2>
+      <div class="minis" id="weekStats" style="grid-template-columns:repeat(2,1fr)"></div>
+      <div class="note" id="weekInsight" style="margin-top:10px">–</div>
+    </div>
     <div class="panel">
       <h2>Trend <select id="trendRange" onchange="UI.renderAnalyse()">
         <option value="7">7 Tage</option><option value="30" selected>30 Tage</option><option value="90">90 Tage</option>
@@ -1184,6 +1206,12 @@ const UI = {
     let n=0; for(const t of ['hr','spo2','steps','sleep','battery','events','daily']) n+=await db.table(t).count();
     $('stDb').textContent=n;
   },
+  /* Zahl weich hochzählen (Politur) */
+  animateNum(id, target){
+    const el=$(id); if(target==null){ el.textContent='--'; return; }
+    clearInterval(el._iv); let cur=0; const step=Math.max(1,Math.round(target/25));
+    el._iv=setInterval(()=>{ cur=Math.min(target,cur+step); el.textContent=cur; if(cur>=target) clearInterval(el._iv); },22);
+  },
   toggleLive(kind){ Live.toggle(kind).catch(e=>$('liveStatus').textContent=e.message); },
   initLiveChart(){
     if(Live.chart) return;
@@ -1234,6 +1262,35 @@ const UI = {
       $('hgAdvice').textContent='Ring nachts tragen, morgens CONNECT drücken – dann erscheint hier „Du bist X % erholt" mit Aufschlüsselung.';
       $('hgFactors').innerHTML='';
     }
+    UI.animateNum('hgNum', rec);
+    // ---- Strain-Coach ----
+    const strain=d.strain||0;
+    const target = rec==null?null : rec>=67?16 : rec>=40?11 : 7;
+    $('strainNow').textContent=strain.toFixed(1);
+    $('strainTarget').textContent = target!=null?target:'–';
+    $('strainBar').style.width = target?Math.min(strain/target*100,100)+'%':'0';
+    $('strainBar').style.background = strain>=(target||99)?'var(--gn)':'var(--bl)';
+    if(target!=null){
+      $('strainBadge').textContent = strain>=target?'Ziel erreicht ✓':'noch Luft';
+      $('strainAdvice').textContent = rec>=67
+        ? 'Hohe Erholung → heute darfst du bis Strain '+target+' gehen. Guter Tag für intensives Training.'
+        : rec>=40 ? 'Moderate Erholung → Ziel-Strain ~'+target+'. Nicht überziehen.'
+        : 'Niedrige Erholung → halt die Belastung unter '+target+'. Heute lieber locker.';
+    }
+    // ---- Schlaf-Coach ----
+    const recentStrain=(await db.daily.orderBy('day').reverse().limit(3).toArray())
+      .reduce((a,x)=>a+(x.strain||0),0)/3;
+    let need=7.5 + Math.min(recentStrain,21)/21*1.5;         // 7.5–9h je nach Belastung
+    if(rec!=null && rec<40) need+=0.5;                        // schlecht erholt → mehr Schlaf
+    need=Math.round(need*10)/10;
+    $('sleepNeed').textContent=need+' h';
+    const wg=($('wakeGoal').value||'07:00').split(':').map(Number);
+    let bedMin=(wg[0]*60+wg[1]) - Math.round(need*60) - 20;   // +20 min Einschlafzeit
+    bedMin=((bedMin%1440)+1440)%1440;
+    $('bedtime').textContent=String(Math.floor(bedMin/60)).padStart(2,'0')+':'+String(bedMin%60).padStart(2,'0');
+    $('sleepCoachNote').textContent = rec!=null&&rec<40
+      ? 'Du bist wenig erholt – +30 Min extra empfohlen. Früh ins Bett hilft dem Score morgen.'
+      : 'Empfehlung steigt mit deiner Belastung, damit du morgen wieder voll erholt bist.';
     $('cRhr').textContent=d.rhr??'–';
     $('cHrv').textContent = d.hrvNative!=null ? d.hrvNative+' (nativ)' : (d.hrv??'–');
     $('cStress').textContent = d.stress!=null ? d.stress+' /100'+(d.stress<40?' 🟢':d.stress<70?' 🟡':' 🔴') : '–';
@@ -1291,7 +1348,32 @@ const UI = {
                 y:{grid:{color:'#1a2230'},ticks:{color:'#5a6678'}}}}});
     this.dbCount();
   },
+  async renderWeekReport(){
+    const week=await db.daily.orderBy('day').reverse().limit(7).toArray();
+    const sleeps=await db.sleep.orderBy('day').reverse().limit(7).toArray();
+    const avg=(arr,f)=>{ const v=arr.map(f).filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
+    const recAvg=avg(week,x=>x.readiness), slAvg=avg(sleeps,x=>x.minutes), rhrAvg=avg(week,x=>x.rhr);
+    const best=week.filter(x=>x.readiness!=null).sort((a,b)=>b.readiness-a.readiness)[0];
+    const fmt=(v,u='')=>v==null?'–':Math.round(v)+u;
+    $('weekStats').innerHTML=
+      `<div class="mini"><b>${fmt(recAvg,'%')}</b><small>Ø Erholung</small></div>`+
+      `<div class="mini"><b>${slAvg?(slAvg/60).toFixed(1)+'h':'–'}</b><small>Ø Schlaf</small></div>`+
+      `<div class="mini"><b>${fmt(rhrAvg)}</b><small>Ø Ruhepuls</small></div>`+
+      `<div class="mini"><b>${best?best.readiness+'%':'–'}</b><small>Bester Tag</small></div>`;
+    // Muster: Tag-Effekt (Alkohol etc.) aus Korrelationen
+    const corr=await Analytics.correlations();
+    let insight='Trag ein paar Tage Daten + Events, dann erkenne ich hier Muster.';
+    if(recAvg!=null){
+      insight = recAvg>=67?'Starke Woche – deine Erholung liegt im grünen Bereich. Weiter so.'
+        : recAvg>=45?'Solide Woche. Für höhere Erholung: mehr/besserer Schlaf.'
+        : 'Anstrengende Woche – deine Erholung war oft niedrig. Achte auf Schlaf und Ruhetage.';
+      const alk=corr.find(c=>c.tag==='Alkohol');
+      if(alk&&+alk.dRhr>1) insight+=' · Nach Alkohol war dein Ruhepuls am Folgetag Ø +'+alk.dRhr+' bpm (schlechtere Erholung).';
+    }
+    $('weekInsight').textContent=insight;
+  },
   async renderAnalyse(){
+    await this.renderWeekReport();
     const n=+$('trendRange').value;
     const all=(await db.daily.orderBy('day').reverse().limit(n).toArray()).reverse();
     if(this.charts.trend) this.charts.trend.destroy();
