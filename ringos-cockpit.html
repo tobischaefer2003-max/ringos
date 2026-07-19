@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.2 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.3 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -1476,7 +1476,8 @@ const UI = {
     $('sleepCoachNote').textContent = rec!=null&&rec<40
       ? 'Du bist wenig erholt – +30 Min extra empfohlen. Früh ins Bett hilft dem Score morgen.'
       : 'Empfehlung steigt mit deiner Belastung, damit du morgen wieder voll erholt bist.';
-    // ---- Body Battery ----
+    // ---- Body Battery ---- (gekapselt, darf nichts anderes blockieren)
+    try{
     const bb=await Analytics.bodyBattery();
     if(bb){
       $('bbNow').textContent=bb.now;
@@ -1486,7 +1487,9 @@ const UI = {
       $('bbTrend').textContent=bb.trend>2?'↑ lädt':bb.trend<-2?'↓ entlädt':'→ stabil';
       $('bbNote').textContent=bb.now>=60?'Gut geladen – du hast Energie für den Tag.':bb.now>=30?'Halbvoll – teil dir die Kräfte ein.':'Fast leer – Zeit für Pause/Schlaf zum Aufladen.';
     } else { $('bbNow').textContent='–'; }
-    // ---- Fitness / VO2max ----
+    }catch(e){ Dbg.log('err','Body-Battery-Fehler: '+e.message); $('bbNow').textContent='–'; }
+    // ---- Fitness / VO2max ---- (gekapselt)
+    try{
     if($('ageInput')&&settings.age) $('ageInput').value=settings.age;
     const fit=await Analytics.fitnessEstimate();
     if(fit){
@@ -1494,12 +1497,14 @@ const UI = {
       $('vo2').style.color=fit.vo2>=48?'var(--gn)':fit.vo2>=40?'var(--yl)':'var(--text)';
       $('vo2Note').textContent=fit.cat+' · Ruhepuls '+fit.rhr+', Maxpuls '+fit.hrmax+' ('+fit.hrmaxSource+'). Für mehr Genauigkeit: Alter eintragen + mal richtig auspowern (mit Ring).';
     } else { $('vo2').textContent='–'; }
+    }catch(e){ Dbg.log('err','Fitness-Fehler: '+e.message); $('vo2').textContent='–'; }
     $('cRhr').textContent=d.rhr??'–';
     $('cHrv').textContent = d.hrvNative!=null ? d.hrvNative+' (nativ)' : (d.hrv??'–');
     $('cStress').textContent = d.stress!=null ? d.stress+' /100'+(d.stress<40?' 🟢':d.stress<70?' 🟡':' 🔴') : '–';
     $('cSteps').textContent=d.steps??'–';
     $('cCal').textContent=d.cal?d.cal+' kcal':'–';
     // Schlaf: heute, sonst zuletzt erkannte Nacht (robust gegen Zeitzonen-/Tageswechsel)
+    try{
     let sl=await db.sleep.get(day);
     if(!sl){ const allSl=await db.sleep.orderBy('day').toArray(); sl=allSl[allSl.length-1]||null; }
     if(sl){ sl.minutes=sl.minutes||0; sl.phases=sl.phases||{deep:0,light:sl.minutes}; }  // defensiv gegen alte/kaputte Records
@@ -1538,6 +1543,7 @@ const UI = {
         : nRows.length+' Messpunkte da, aber kein klares Schlaffenster erkannt. Drück „NEU BERECHNEN" im SYNC-Tab.';
       ['slDeep','slLight','slWake','slTimes'].forEach(id=>$(id).textContent='–');
     }
+    }catch(e){ Dbg.log('err','Schlaf-Karte-Fehler: '+e.message); }
     const an=await Analytics.anomalies(7);
     $('cAnom').textContent=an.length?an.length+' ⚠':'0 ✓';
     // Tages-Chart
