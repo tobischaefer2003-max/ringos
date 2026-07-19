@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v8.0 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v9.0 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -157,6 +157,22 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
         <div class="kv" style="margin-top:6px"><span class="k">Ideal ins Bett</span><span class="v" id="bedtime">–</span></div>
         <div class="kv"><span class="k">Für Aufwachen</span><span class="v"><input type="time" id="wakeGoal" value="07:00" style="width:90px;padding:4px 6px" onchange="UI.renderCockpit()"></span></div>
         <div class="note" id="sleepCoachNote">Empfohlene Schlafdauer steigt mit deiner Belastung (Strain) und sinkt bei guter Erholung.</div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>Body Battery <span class="badge">Energie</span></h2>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="big" id="bbNow" style="font-size:38px">–</span><span class="unit">/ 100 <span id="bbTrend"></span></span></div>
+        <div style="height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;margin:8px 0">
+          <div id="bbBar" style="height:100%;width:0;background:var(--gn);transition:width .8s"></div>
+        </div>
+        <div class="note" id="bbNote">Dein Energie-Akku: lädt bei Ruhe/Schlaf, entlädt bei Belastung. Aus dem heutigen Puls-Verlauf.</div>
+      </div>
+      <div class="panel">
+        <h2>Fitness (VO2max) <span class="badge">USP</span></h2>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="big" id="vo2" style="font-size:38px">–</span><span class="unit">ml/kg/min</span></div>
+        <div class="note" id="vo2Note">Geschätzte Ausdauerleistung aus Ruhepuls und Maximalpuls (Uth-Sørensen).</div>
+        <div class="kv" style="margin-top:6px"><span class="k">Dein Alter (für Genauigkeit)</span><span class="v"><input type="number" id="ageInput" min="10" max="99" placeholder="z.B. 23" style="width:70px;padding:4px 6px" onchange="UI.setAge(this.value)"></span></div>
       </div>
     </div>
     <div class="grid">
@@ -1113,6 +1129,47 @@ const Analytics = {
       .map(([k,v])=>({tag:k, n:v.length, impact:v.reduce((a,b)=>a+b,0)/v.length}))
       .filter(x=>x.impact>0.3)
       .sort((a,b)=>b.impact-a.impact);
+  },
+
+  /* ===== USP 4: Fitness / VO2max-Schätzung =====
+     Uth-Sørensen-Formel: VO2max ≈ 15.3 × (HRmax / HRruhe). Gut validiert für Schätzungen.
+     HRmax = höchster je gemessener Puls (aus Workouts/Logs), sonst 220-Alter. */
+  async fitnessEstimate(){
+    const rhrB=await this.baseline('9999','rhr');
+    const rhr=rhrB?rhrB.mean:(await db.daily.orderBy('day').reverse().limit(1).toArray())[0]?.rhr;
+    if(!rhr) return null;
+    const maxRow=await db.hr.orderBy('bpm').reverse().limit(1).toArray();
+    let hrmax=maxRow[0]?.bpm||0;
+    const ageMax = settings.age? 220-settings.age : 190;
+    if(hrmax<140) hrmax=ageMax;                      // zu wenig Belastungsdaten → Alters-Schätzung
+    const vo2=Math.round(15.3*hrmax/rhr);
+    // Kategorie grob (erwachsen); ohne Alter/Geschlecht nur Richtwert
+    let cat = vo2>=55?'Ausgezeichnet (Athlet)':vo2>=48?'Sehr gut':vo2>=42?'Gut':vo2>=36?'Durchschnitt':'Ausbaufähig';
+    return {vo2, hrmax, rhr:Math.round(rhr), cat, hrmaxSource: (maxRow[0]?.bpm||0)>=140?'gemessen':'aus Alter geschätzt'};
+  },
+
+  /* ===== USP 5: Body Battery (Energie-Level) =====
+     Simuliert deinen Energiestand über den Tag: lädt bei Ruhe/Schlaf, entlädt bei Belastung.
+     Startwert = Erholungs-Score. Aus dem heutigen 5-Min-HR-Log berechnet. */
+  async bodyBattery(){
+    const day=dayKey();
+    const start=new Date(day+'T00:00:00').getTime();
+    const rows=(await db.hr.where('ts').between(start-6*3600000,start+86400000).toArray()).sort((a,b)=>a.ts-b.ts);
+    if(rows.length<6) return null;
+    const rhrB=await this.baseline(day,'rhr'); const rest=rhrB?rhrB.mean:Math.min(...rows.map(r=>r.bpm));
+    const d=await db.daily.get(day);
+    let e = d&&d.readiness!=null ? d.readiness : 60;    // Start = Erholung
+    const series=[];
+    for(const r of rows){
+      const over=r.bpm-rest;
+      if(over<8) e += 0.9;                              // Ruhe/Schlaf → laden
+      else e -= over*0.06;                             // Belastung → entladen ∝ Intensität
+      e=Math.max(0,Math.min(100,e));
+      series.push({t:r.ts, e:Math.round(e)});
+    }
+    const now=series[series.length-1].e;
+    const trend = series.length>6 ? now-series[series.length-6].e : 0;
+    return {now, trend, series};
   }
 };
 
@@ -1286,6 +1343,7 @@ const UI = {
     let n=0; for(const t of ['hr','spo2','steps','sleep','battery','events','daily']) n+=await db.table(t).count();
     $('stDb').textContent=n;
   },
+  setAge(v){ settings.age=+v||null; store.set('ro_set',settings); this.renderCockpit(); },
   /* Zahl weich hochzählen (Politur) */
   animateNum(id, target){
     const el=$(id); if(target==null){ el.textContent='--'; return; }
@@ -1385,6 +1443,24 @@ const UI = {
     $('sleepCoachNote').textContent = rec!=null&&rec<40
       ? 'Du bist wenig erholt – +30 Min extra empfohlen. Früh ins Bett hilft dem Score morgen.'
       : 'Empfehlung steigt mit deiner Belastung, damit du morgen wieder voll erholt bist.';
+    // ---- Body Battery ----
+    const bb=await Analytics.bodyBattery();
+    if(bb){
+      $('bbNow').textContent=bb.now;
+      $('bbNow').style.color=bb.now>=60?'var(--gn)':bb.now>=30?'var(--yl)':'var(--rd)';
+      $('bbBar').style.width=bb.now+'%';
+      $('bbBar').style.background=bb.now>=60?'var(--gn)':bb.now>=30?'var(--yl)':'var(--rd)';
+      $('bbTrend').textContent=bb.trend>2?'↑ lädt':bb.trend<-2?'↓ entlädt':'→ stabil';
+      $('bbNote').textContent=bb.now>=60?'Gut geladen – du hast Energie für den Tag.':bb.now>=30?'Halbvoll – teil dir die Kräfte ein.':'Fast leer – Zeit für Pause/Schlaf zum Aufladen.';
+    } else { $('bbNow').textContent='–'; }
+    // ---- Fitness / VO2max ----
+    if($('ageInput')&&settings.age) $('ageInput').value=settings.age;
+    const fit=await Analytics.fitnessEstimate();
+    if(fit){
+      $('vo2').textContent=fit.vo2;
+      $('vo2').style.color=fit.vo2>=48?'var(--gn)':fit.vo2>=40?'var(--yl)':'var(--text)';
+      $('vo2Note').textContent=fit.cat+' · Ruhepuls '+fit.rhr+', Maxpuls '+fit.hrmax+' ('+fit.hrmaxSource+'). Für mehr Genauigkeit: Alter eintragen + mal richtig auspowern (mit Ring).';
+    } else { $('vo2').textContent='–'; }
     $('cRhr').textContent=d.rhr??'–';
     $('cHrv').textContent = d.hrvNative!=null ? d.hrvNative+' (nativ)' : (d.hrv??'–');
     $('cStress').textContent = d.stress!=null ? d.stress+' /100'+(d.stress<40?' 🟢':d.stress<70?' 🟡':' 🔴') : '–';
