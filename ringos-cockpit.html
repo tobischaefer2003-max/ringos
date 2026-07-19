@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v6.1 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v6.2 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -1189,7 +1189,17 @@ const UI = {
     const day=dayKey(), d=await db.daily.get(day)||{};
     $('cockpitDate').textContent=day;
     // ---- Recovery-Hero-Gauge ----
-    const rec=d.readiness;
+    // Heutigen Score, sonst live aus der letzten Nacht berechnen (liegt oft unter „gestern")
+    let heroD=d, rec=d.readiness;
+    if(rec==null){
+      const allSleep=await db.sleep.orderBy('day').toArray();
+      const lastSleep=allSleep[allSleep.length-1];
+      if(lastSleep){
+        heroD=await db.daily.get(lastSleep.day)||{day:lastSleep.day};
+        const rf=await Analytics.recoveryFactors(lastSleep.day, heroD);
+        rec=rf.score;
+      }
+    }
     const col = rec==null?'var(--muted)':rec>=67?'#34d399':rec>=40?'#facc15':'#f87171';
     const glow= rec==null?'rgba(90,102,120,.1)':rec>=67?'rgba(52,211,153,.16)':rec>=40?'rgba(250,204,21,.14)':'rgba(248,113,113,.14)';
     const C=540.4;
@@ -1204,8 +1214,8 @@ const UI = {
       $('hgAdvice').textContent = rec>=67?'Dein Körper ist bereit für hohe Belastung. Nutz den Tag für dein hartes Training.'
         :rec>=40?'Solide Basis, aber nicht auf 100 %. Moderates Training ist okay – hör auf deinen Körper.'
         :'Ruhepuls/Schlaf zeigen: dein Körper braucht Erholung. Heute besser Spaziergang, Mobility, früh ins Bett.';
-      // Faktoren-Aufschlüsselung
-      const {factors}=await Analytics.recoveryFactors(day,d);
+      // Faktoren-Aufschlüsselung (für die angezeigte Nacht)
+      const {factors}=await Analytics.recoveryFactors(heroD.day||day, heroD);
       $('hgFactors').innerHTML = factors.map(f=>{
         const arrow=f.dir==='up'?'▲':f.dir==='down'?'▼':'▪';
         return `<div class="factor"><div class="fl">${f.label}</div><div class="fv">${f.value}</div>`+
