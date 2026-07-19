@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.0 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.1 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -542,18 +542,16 @@ const Codec = {
      Command-IDs aus colmi.puxtril.com/settings: SpO2=44, Stress=54, HRV=56, BlutdruckMonitor=12 */
   async enableMonitoring(cmdId, on=true){ await BLE.write(Codec.make(cmdId,[2, on?1:0])); },
   async enableAll(){
-    Dbg.log('info','Aktiviere alle 24/7-Messungen…');
-    await Codec.setHrLogSettings(true,5);                 // Puls alle 5 Min
-    await new Promise(r=>setTimeout(r,300));
-    await Codec.enableMonitoring(44,true);                // SpO2
-    await new Promise(r=>setTimeout(r,300));
-    await Codec.enableMonitoring(54,true);                // Stress
-    await new Promise(r=>setTimeout(r,300));
-    await Codec.enableMonitoring(56,true);                // HRV
-    await new Promise(r=>setTimeout(r,300));
-    await Codec.enableMonitoring(12,true);                // Blutdruck-Monitor (falls unterstützt)
-    $('syncStatus').textContent='Alle Messungen aktiviert ✓ – ab jetzt zeichnet der Ring SpO2/Stress/HRV auf. Daten ab morgen abrufbar.';
-    Sync.log('Alle 24/7-Messungen aktiviert ✓ (Puls, SpO2, Stress, HRV)');
+    Dbg.log('info','Aktiviere Messungen… (mit Sicherheitspausen, damit der Ring verbunden bleibt)');
+    const wait=ms=>new Promise(r=>setTimeout(r,ms));
+    try{
+      await Codec.setHrLogSettings(true,5); await wait(900);   // Puls alle 5 Min
+      await Codec.enableMonitoring(44,true); await wait(900);  // SpO2
+      await Codec.enableMonitoring(54,true); await wait(900);  // Stress
+      await Codec.enableMonitoring(56,true);                   // HRV
+      $('syncStatus').textContent='Messungen aktiviert ✓ – Ring zeichnet ab jetzt SpO2/Stress/HRV auf. Daten ab morgen.';
+      Sync.log('24/7-Messungen aktiviert ✓ (Puls, SpO2, Stress, HRV)');
+    }catch(e){ Sync.log('Aktivierung abgebrochen: '+e.message+' (Ring evtl. getrennt – neu verbinden und nochmal)'); }
   },
   /* User Data an den Ring schreiben – macht ringinterne Kalorien/VO2 genauer.
      [10, 2, is24=1, metric=1, gender(0=w,1=m), age, height_cm, weight_kg, sbp, dbp] */
@@ -847,10 +845,10 @@ const BLE = {
     $('liveStatus').textContent='Verbunden ✓';
     await Codec.sendBattery();
     await Codec.sendSetTime();     // Ring-Uhr bei jedem Connect stellen → Logs stimmen
-    // Beim ersten Verbinden alle Messungen aktivieren (einmalig gemerkt)
-    if(!settings.activated){ setTimeout(()=>{ Codec.enableAll().then(()=>{ settings.activated=true; store.set('ro_set',settings); }).catch(()=>{}); }, 800); }
+    // (Auto-Aktivierung entfernt – hat manche Ringe zum Trennen gebracht.
+    //  „Alles aktivieren" jetzt nur noch manuell im SYNC-Tab, mit Sicherheitspausen.)
     // Automatisch letzte Nacht + heutigen Puls holen → morgens reicht CONNECT
-    if(this.bigRx){ setTimeout(()=>BigData.request(39).catch(()=>{}), 2000); }
+    if(this.bigRx){ setTimeout(()=>BigData.request(39).catch(()=>{}), 2500); }
     setTimeout(()=>Sync.syncDay(0), 2200);
     /* HRV/Stress-Auto-Abruf deaktiviert – Firmware antwortet (noch) nicht auf 57/55.
        Manuell testbar über die Buttons im SYNC-Tab; sobald ein echtes Antwort-Frame
