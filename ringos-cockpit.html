@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.3 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.4 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -1005,9 +1005,11 @@ const Analytics = {
     if(nb.length>3){ const rr=nb.map(b=>60000/b); let sq=0;
       for(let i=1;i<rr.length;i++) sq+=(rr[i]-rr[i-1])**2; hrv=Math.round(Math.sqrt(sq/(rr.length-1))); }
 
-    if(sleepMin>=30){
+    // Native Ring-Schlafdaten haben Vorrang – Heuristik NIE drüberschreiben
+    const existing=await db.sleep.get(day);
+    if(sleepMin>=30 && !(existing && existing.src==='native')){
       await db.sleep.put({day, minutes:sleepMin,
-        phases:{deep:deepMin, light:sleepMin-deepMin}, wakeups,
+        phases:{deep:deepMin, light:sleepMin-deepMin}, wakeups, src:'heuristic',
         bed: bedIdx>=0? rows[bedIdx].ts : null,
         wake: wakeIdx>=0? rows[wakeIdx].ts : null});
     }
