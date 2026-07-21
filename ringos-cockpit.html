@@ -119,7 +119,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v13.0</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.0</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -327,6 +327,31 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
 
   <!-- ============ ANALYSE ============ -->
   <section class="view" id="v-analyse">
+    <div class="panel" id="stressPanel">
+      <h2>Stress-Karte heute <span class="badge">Tag</span></h2>
+      <div style="display:flex;height:20px;border-radius:6px;overflow:hidden;border:1px solid var(--border)" id="stressBar"></div>
+      <div style="display:flex;gap:12px;font-size:11px;color:var(--muted);margin-top:6px;flex-wrap:wrap">
+        <span><span style="color:var(--gn)">■</span> ruhig <b id="smCalm" style="color:var(--text)">–</b></span>
+        <span><span style="color:var(--bl)">■</span> aktiv <b id="smActive" style="color:var(--text)">–</b></span>
+        <span><span style="color:var(--rd)">■</span> Stress <b id="smStress" style="color:var(--text)">–</b></span>
+      </div>
+      <div class="note" id="smNote">Puls hoch bei kaum Bewegung = mentaler Stress (z.B. Lernen, Prüfung). Braucht Puls-Daten von heute (sync).</div>
+    </div>
+    <div class="panel">
+      <h2>Herz &amp; Nervensystem <span class="badge">Forschung</span></h2>
+      <div class="grid" style="gap:10px">
+        <div style="text-align:center;background:var(--panel2);border-radius:12px;padding:12px">
+          <div class="big" id="cardioAge" style="font-size:34px">–</div>
+          <div class="unit" id="cardioAgeNote">Herz-Alter</div>
+        </div>
+        <div style="text-align:center;background:var(--panel2);border-radius:12px;padding:12px">
+          <div class="big" id="hrrVal" style="font-size:34px">–</div>
+          <div class="unit">Puls-Erholung (bpm)</div>
+        </div>
+      </div>
+      <div class="kv" style="margin-top:10px"><span class="k">HRV-Trend (Nervensystem)</span><span class="v" id="hrvTrendVal">–</span></div>
+      <div class="note" id="heartNote">Herz-Alter aus Ausdauer + Ruhepuls + HRV · Puls-Erholung = wie schnell dein Puls nach Belastung sinkt (Fitness-Marker) · HRV-Trend = Zustand deines Nervensystems. Trag dein Alter im Cockpit ein für's Herz-Alter.</div>
+    </div>
     <div class="panel">
       <h2>Wochen-Report (letzte 7 Tage)</h2>
       <div class="minis" id="weekStats" style="grid-template-columns:repeat(2,1fr)"></div>
@@ -1239,6 +1264,62 @@ const Analytics = {
     const trend = series.length>6 ? now-series[series.length-6].e : 0;
     return {now, trend, series};
   },
+  /* ===== Herz-/Fitness-Alter (aus VO2max, Ruhepuls, HRV vs. Altersnorm) ===== */
+  async cardioAge(){
+    if(!settings.age) return null;
+    const fit=await this.fitnessEstimate(); if(!fit) return null;
+    const rhr=fit.rhr, vo2=fit.vo2;
+    const bH=await this.baseline('9999','hrv'); const hrv=bH?bH.mean:null;
+    const expVo2=50-Math.max(0,settings.age-20)*0.4;
+    let a=settings.age + Math.max(-8,Math.min(15,(expVo2-vo2)/0.6));
+    a += (rhr-60)*0.12;
+    if(hrv!=null) a -= (hrv-40)*0.10;
+    a=Math.max(16,Math.min(settings.age+18,Math.round(a)));
+    return {age:a, chrono:settings.age, diff:a-settings.age};
+  },
+  /* ===== HRV-Trend (Nervensystem): aktuell vs. 30-Tage-Ø ===== */
+  async hrvTrend(){
+    const all=(await db.daily.orderBy('day').reverse().limit(30).toArray()).map(d=>d.hrvNative??d.hrv).filter(v=>v!=null);
+    if(all.length<3) return null;
+    const cur=all[0], avg=Math.round(all.reduce((a,b)=>a+b,0)/all.length);
+    const recent=all.slice(0,7), older=all.slice(7);
+    const rAvg=recent.reduce((a,b)=>a+b,0)/recent.length;
+    const oAvg=older.length?older.reduce((a,b)=>a+b,0)/older.length:rAvg;
+    const dir=rAvg>oAvg+2?'up':rAvg<oAvg-2?'down':'flat';
+    return {cur, avg, dir, n:all.length};
+  },
+  /* ===== Herzfrequenz-Erholung (HRR): stärkster Puls-Abfall nach Belastung ===== */
+  async heartRateRecovery(days=7){
+    const rows=(await db.hr.orderBy('ts').toArray());
+    if(rows.length<8) return null;
+    const rest=(await this.baseline('9999','rhr'))?.mean || Math.min(...rows.map(r=>r.bpm));
+    let best=0;
+    for(let i=0;i<rows.length-3;i++){
+      if(rows[i].bpm>rest+40 && rows[i+1].ts-rows[i].ts<20*60000){
+        const drop=rows[i].bpm-Math.min(rows[i+1].bpm,rows[i+2].bpm,rows[i+3].bpm);
+        if(drop>best&&drop<120) best=drop;
+      }
+    }
+    return best>=5?{drop:best}:null;
+  },
+  /* ===== Stress-Karte: Puls bewegungsbereinigt (hoher Puls + kaum Schritte = mentaler Stress) ===== */
+  async stressMap(day=dayKey()){
+    const start=new Date(day+'T00:00:00').getTime();
+    const hr=(await db.hr.where('ts').between(start,start+86400000).toArray()).sort((a,b)=>a.ts-b.ts);
+    if(hr.length<12) return null;
+    const rest=(await this.baseline(day,'rhr'))?.mean || Math.min(...hr.map(r=>r.bpm));
+    const steps=await db.steps.where('day').equals(day).toArray();
+    const activeBlocks=new Set(steps.filter(s=>s.steps>120).map(s=>s.idx)); // 15-Min-Blöcke mit Bewegung
+    let calm=0,active=0,stress=0,light=0; const byHour={};
+    for(const r of hr){
+      const min=(r.ts-start)/60000; const block=Math.floor(min/15);
+      if(activeBlocks.has(block)){ active+=5; continue; }
+      if(r.bpm>rest+16){ stress+=5; const h=Math.floor(min/60); byHour[h]=(byHour[h]||0)+5; }
+      else if(r.bpm>rest+6) light+=5; else calm+=5;
+    }
+    const peak=Object.entries(byHour).sort((a,b)=>b[1]-a[1])[0];
+    return {calm,active,stress,light,peakHour:peak?+peak[0]:null,total:calm+active+stress+light};
+  },
   /* Fokus- / Lern-Bereitschaft: kein direkter Sensor, sondern aus Physiologie abgeleitet.
      Erholtes Nervensystem (hohe Erholung, hohe HRV) + guter Schlaf + wenig Stress
      = besserer Zustand für Konzentration/Lernen. Basis: Erholung, moduliert durch Stress/HRV. */
@@ -1654,7 +1735,40 @@ const UI = {
                 y:{grid:{color:'#1a2230'},ticks:{color:'#5a6678'}}}}});
     this.dbCount();
   },
+  async renderHeartStress(){
+    const fmtH=m=>{const h=Math.floor(m/60),mm=m%60; return h>0?h+'h '+mm+'m':mm+' min';};
+    // Herz-Alter
+    try{
+      const ca=await Analytics.cardioAge();
+      if(ca){ $('cardioAge').textContent=ca.age;
+        $('cardioAge').style.color=ca.diff<0?'var(--gn)':ca.diff>3?'var(--rd)':'var(--bright)';
+        $('cardioAgeNote').textContent=ca.diff<0?'Herz-Alter ('+Math.abs(ca.diff)+' J. jünger 🎉)':ca.diff>0?'Herz-Alter ('+ca.diff+' J. älter)':'Herz-Alter';
+      } else $('cardioAge').textContent='–';
+    }catch(e){}
+    // HRR
+    try{ const h=await Analytics.heartRateRecovery(); if(h){ $('hrrVal').textContent=h.drop;
+      $('hrrVal').style.color=h.drop>=30?'var(--gn)':h.drop>=18?'var(--yl)':'var(--rd)'; } else $('hrrVal').textContent='–'; }catch(e){}
+    // HRV-Trend
+    try{ const t=await Analytics.hrvTrend();
+      if(t){ const arr=t.dir==='up'?'▲ steigend':t.dir==='down'?'▼ fallend':'▪ stabil';
+        $('hrvTrendVal').textContent=t.cur+' (Ø '+t.avg+') · '+arr;
+        $('hrvTrendVal').style.color=t.dir==='up'?'var(--gn)':t.dir==='down'?'var(--rd)':'var(--text)';
+      } else $('hrvTrendVal').textContent='baut sich auf'; }catch(e){}
+    // Stress-Karte
+    try{
+      const sm=await Analytics.stressMap();
+      if(sm && sm.total>0){
+        const seg=(m,c)=>m>0?`<div style="width:${m/sm.total*100}%;background:${c}"></div>`:'';
+        $('stressBar').innerHTML=seg(sm.calm,'#3ce87d')+seg(sm.light,'#4d9dff')+seg(sm.active,'#a882ff')+seg(sm.stress,'#ff6b74');
+        $('smCalm').textContent=fmtH(sm.calm); $('smActive').textContent=fmtH(sm.active); $('smStress').textContent=fmtH(sm.stress);
+        $('smNote').textContent = sm.stress>60
+          ? 'Heute '+fmtH(sm.stress)+' mental gestresst'+(sm.peakHour!=null?', am meisten um '+sm.peakHour+':00 Uhr':'')+'. Plan Pausen ein.'
+          : 'Entspannter Tag – wenig mentaler Stress ('+fmtH(sm.stress)+'). 👍';
+      } else $('smNote').textContent='Noch keine Tagesdaten. Ring tragen + „HEUTE SYNCEN".';
+    }catch(e){ Dbg.log('err','Stress-Karte: '+e.message); }
+  },
   async renderWeekReport(){
+    await this.renderHeartStress();
     const week=await db.daily.orderBy('day').reverse().limit(7).toArray();
     const sleeps=await db.sleep.orderBy('day').reverse().limit(7).toArray();
     const avg=(arr,f)=>{ const v=arr.map(f).filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
