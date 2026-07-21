@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.3</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.4</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -277,9 +277,9 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
           <button onclick="Codec.sendSetTime()">ZEIT SETZEN</button>
         </div>
         <div class="note">State-Machine: <b id="smState">disconnected</b> · Auto-Reconnect: <span id="smRetry">aus</span><br>
-        <b>iPhone-Tipp:</b> App einfach schließen (NICHT „TRENNEN") – beim Wiederöffnen dockt RingOS
-        automatisch an (jetzt mit 5 Andock-Versuchen + je 4× GATT-Retry, viel robuster).
-        Nur wenn's mal hakt: „SCHNELL-VERBINDEN", zur Not „CONNECT".</div>
+        <b>iPhone-Tipp:</b> RingOS trennt den Ring jetzt beim Schließen automatisch sauber –
+        so bleibt KEINE hängende Verbindung in den iOS-Einstellungen zurück. Beim Öffnen
+        einfach „SCHNELL-VERBINDEN" (oder „CONNECT") drücken – kein „Gerät entfernen" mehr nötig.</div>
         <div class="statusline" id="liveStatus"></div>
       </div>
     </div>
@@ -951,6 +951,7 @@ const BLE = {
   onDrop(){
     this.setState('disconnected');
     if(!this.wantReconnect){ return; }
+    if(document.hidden){ return; }   // App im Hintergrund → nicht reconnecten, beim Öffnen neu andocken
     const delay=Math.min(30000, 1000*Math.pow(2,this.retries++));   // Exponential Backoff 1s→30s
     $('smRetry').textContent='Versuch '+this.retries+' in '+(delay/1000)+'s';
     setTimeout(async()=>{
@@ -963,6 +964,18 @@ const BLE = {
     this.wantReconnect=false;
     if(this.device&&this.device.gatt.connected) this.device.gatt.disconnect();
     this.setState('disconnected'); $('smRetry').textContent='aus';
+  },
+  /* Beim App-Schließen/In-den-Hintergrund: Ring SAUBER trennen. Das verhindert, dass iOS
+     eine halbtote BLE-Verbindung behält, die man sonst in den Einstellungen „entfernen"
+     müsste. Beim Wiederöffnen wird ganz normal neu verbunden. */
+  softDisconnect(){
+    try{
+      if(this.device && this.device.gatt && this.device.gatt.connected){
+        this.device.gatt.disconnect();
+        Dbg.log('info','App im Hintergrund → Ring sauber getrennt (kein iOS-Hänger).');
+      }
+    }catch(e){}
+    this.setState('disconnected');
   },
   /* Schnell-Verbinden ohne Auswahl-Popup: nutzt bereits erlaubte Geräte (getDevices).
      WICHTIG für iOS/Bluefy: Der Ring bleibt nach App-Schließen auf iOS-Ebene verbunden.
@@ -1900,9 +1913,11 @@ async function autoReconnectLoop(){
 window.addEventListener('load', ()=>setTimeout(autoReconnectLoop, 700));
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='visible') setTimeout(autoReconnectLoop, 400);
+  else BLE.softDisconnect();     // App in den Hintergrund → sauber trennen (verhindert iOS-Hänger)
 });
 window.addEventListener('focus', ()=>setTimeout(autoReconnectLoop, 400));
 window.addEventListener('pageshow', ()=>setTimeout(autoReconnectLoop, 500));
+window.addEventListener('pagehide', ()=>BLE.softDisconnect());   // App geschlossen → sauber trennen
 /* PWA-Install: braucht Hosting (https) + separate sw.js – als lokale Datei läuft alles,
    nur der "Installieren"-Prompt fehlt. Beim GitHub-Pages-Deploy legen wir sw.js daneben. */
 </script>
