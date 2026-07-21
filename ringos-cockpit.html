@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.2</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.3</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -489,6 +489,15 @@ db.version(1).stores({
   events:  '++id, day',     // {id, day, tag}
   daily:   'day'            // {day, rhr, hrv, sleepMin, readiness, steps, cal}
 });
+
+/* Nutzer-Einstellungen (Alter etc.) – persistiert in localStorage (läuft in Bluefy/Chrome).
+   WICHTIG: settings & store müssen global existieren, bevor Analytics/UI sie nutzen. */
+const store = {
+  get(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+let settings = store.get('ro_set') || {};
+if(settings.age==null){ settings.age = 23; store.set('ro_set', settings); }  // Standard-Alter
 
 const Store = {
   async putHrBulk(rows){ await db.hr.bulkPut(rows); UI.dbCount(); },       // bulkPut = idempotent (Key ts)
@@ -1251,13 +1260,13 @@ const Analytics = {
     if(!rhr) return null;
     // bpm ist nicht indexiert → NICHT orderBy('bpm') (wirft Fehler!). Max manuell über die letzten Werte.
     const allHr=await db.hr.toArray();
-    let hrmax = allHr.length ? allHr.reduce((m,r)=>r.bpm>m?r.bpm:m, 0) : 0;
+    const measuredMax = allHr.length ? allHr.reduce((m,r)=>r.bpm>m?r.bpm:m, 0) : 0;
     const ageMax = settings.age? 220-settings.age : 190;
-    if(hrmax<140) hrmax=ageMax;                      // zu wenig Belastungsdaten → Alters-Schätzung
+    const hrmax = measuredMax>=140 ? measuredMax : ageMax;   // zu wenig Belastungsdaten → Alters-Schätzung
     const vo2=Math.round(15.3*hrmax/rhr);
     // Kategorie grob (erwachsen); ohne Alter/Geschlecht nur Richtwert
     let cat = vo2>=55?'Ausgezeichnet (Athlet)':vo2>=48?'Sehr gut':vo2>=42?'Gut':vo2>=36?'Durchschnitt':'Ausbaufähig';
-    return {vo2, hrmax, rhr:Math.round(rhr), cat, hrmaxSource: (maxRow[0]?.bpm||0)>=140?'gemessen':'aus Alter geschätzt'};
+    return {vo2, hrmax, rhr:Math.round(rhr), cat, hrmaxSource: measuredMax>=140?'gemessen':'aus Alter geschätzt'};
   },
 
   /* ===== USP 5: Body Battery (Energie-Level) =====
