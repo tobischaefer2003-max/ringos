@@ -118,7 +118,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v11.1</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v12.0</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -156,6 +156,16 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       </details>
     </div>
     <span id="rdScore" style="display:none"></span><span id="rdLabel" style="display:none"></span>
+    <div class="panel" id="focusPanel">
+      <h2>Fokus &amp; Lern-Bereitschaft <span class="badge">Coach</span></h2>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="display:flex;align-items:baseline;gap:6px"><span class="big" id="focusScore" style="font-size:40px">–</span><span class="unit">/ 100</span></div>
+        <div class="note" id="focusNote" style="margin-top:0;flex:1">Wie klar dein Kopf heute für Konzentration und Lernen ist – abgeleitet aus Erholung, HRV und Stress.</div>
+      </div>
+      <div style="height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;margin-top:10px">
+        <div id="focusBar" style="height:100%;width:0;background:var(--cy);transition:width .8s"></div>
+      </div>
+    </div>
     <div class="grid">
       <div class="panel">
         <h2>Strain-Coach heute <i class="badge" id="strainBadge"></i></h2>
@@ -194,7 +204,7 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
         <h2>Heute</h2>
         <div class="kv"><span class="k">Ruhepuls (Nacht-Minimum-Ø)</span><span class="v" id="cRhr">–</span></div>
         <div class="kv"><span class="k">HRV-Index (RMSSD~)</span><span class="v" id="cHrv">–</span></div>
-        <div class="kv"><span class="k">Schlaf (Heuristik)</span><span class="v" id="cSleep">–</span></div>
+        <div class="kv"><span class="k">Schlaf gesamt</span><span class="v" id="cSleep">–</span></div>
         <div class="kv"><span class="k">Schritte</span><span class="v" id="cSteps">–</span></div>
         <div class="kv"><span class="k">Kalorien</span><span class="v" id="cCal">–</span></div>
         <div class="kv"><span class="k">SpO2 (letzte)</span><span class="v" id="cSpo2">–</span></div>
@@ -297,9 +307,11 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       Das ist der Grund, warum HRV/Stress vorher leer waren – die Aufzeichnung war ab Werk aus. Daten erscheinen nach dem nächsten Tag/der nächsten Nacht.</div>
       <div class="btnrow">
         <button onclick="Codec.readHrLogSettings()">LOGGING-STATUS LESEN</button>
-        <button onclick="Codec.setHrLogSettings(true,5)">NUR PULS AN (5 MIN)</button>
+        <button onclick="Codec.setHrLogSettings(true,5)">PULS 5 MIN</button>
+        <button onclick="Codec.setHrLogSettings(true,1)">PULS 1 MIN (dichter, mehr Akku)</button>
         <button onclick="Codec.setHrLogSettings(false,60)">PULS AUS</button>
       </div>
+      <div class="note">1-Minuten-Messung erfasst kurze nächtliche Aufwacher deutlich besser (der Ring misst dann 1440×/Tag statt 288×) – kostet aber mehr Akku. Für genaues Schlaf-Tracking lohnt es sich.</div>
       <div class="note">Ab Werk ist das automatische Puls-Logging oft deaktiviert – einmal aktivieren,
       dann misst der Ring selbstständig. 5 Min = dichteste Daten (beste Schlaf-Analyse), 15 Min = längerer Akku.</div>
       <div class="note">Der Ring misst autonom alle 5 Min (288 Werte/Tag) und speichert onboard –
@@ -1226,6 +1238,19 @@ const Analytics = {
     const trend = series.length>6 ? now-series[series.length-6].e : 0;
     return {now, trend, series};
   },
+  /* Fokus- / Lern-Bereitschaft: kein direkter Sensor, sondern aus Physiologie abgeleitet.
+     Erholtes Nervensystem (hohe Erholung, hohe HRV) + guter Schlaf + wenig Stress
+     = besserer Zustand für Konzentration/Lernen. Basis: Erholung, moduliert durch Stress/HRV. */
+  async focusScore(){
+    const d=(await db.daily.orderBy('day').reverse().limit(1).toArray())[0];
+    if(!d||d.readiness==null) return null;
+    let s=d.readiness;
+    if(d.stress!=null) s -= Math.max(0,(d.stress-40))*0.35;      // hoher Stress mindert Fokus
+    const bH=await this.baseline('9999','hrv'); const hrv=d.hrvNative??d.hrv;
+    if(bH&&hrv!=null) s += (hrv-bH.mean)*0.4;                    // HRV über Baseline = klarer Kopf
+    s=Math.max(1,Math.min(99,Math.round(s)));
+    return {score:s, stress:d.stress};
+  },
   /* Echte Aufwacher aus dem Nacht-Puls: kurze Puls-Sprünge während des Schlafs
      verraten Wachphasen, die der Ring selbst oft nicht meldet. */
   async detectWakeups(bedTs, wakeTs){
@@ -1486,6 +1511,18 @@ const UI = {
       $('hgFactors').innerHTML='';
     }
     UI.animateNum('hgNum', rec);
+    // ---- Fokus & Lern-Bereitschaft ----
+    try{
+      const fo=await Analytics.focusScore();
+      if(fo){
+        const fc=fo.score>=67?'var(--gn)':fo.score>=45?'var(--yl)':'var(--rd)';
+        $('focusScore').textContent=fo.score; $('focusScore').style.color=fc;
+        $('focusBar').style.width=fo.score+'%'; $('focusBar').style.background=fc;
+        $('focusNote').textContent = fo.score>=67?'Klarer Kopf – idealer Tag für konzentriertes Lernen oder anspruchsvolle Aufgaben. Nutz die Vormittags-Stunden.'
+          : fo.score>=45?'Solide, aber nicht auf Hochtouren. Kürzere Lern-Blöcke mit Pausen, das Schwierigste am Vormittag.'
+          : 'Konzentration wird heute schwerfallen (wenig Erholung/hoher Stress). Leichtere Aufgaben, mehr Pausen, früh schlafen.';
+      } else { $('focusScore').textContent='–'; $('focusNote').textContent='Erscheint nach dem ersten Erholungs-Score.'; }
+    }catch(e){ Dbg.log('err','Fokus-Fehler: '+e.message); }
     // ---- Strain-Coach ----
     const strain=d.strain||0;
     const target = rec==null?null : rec>=67?16 : rec>=40?11 : 7;
@@ -1546,7 +1583,8 @@ const UI = {
     let sl=await db.sleep.get(day);
     if(!sl){ const allSl=await db.sleep.orderBy('day').toArray(); sl=allSl[allSl.length-1]||null; }
     if(sl){ sl.minutes=sl.minutes||0; sl.phases=sl.phases||{deep:0,light:sl.minutes}; }  // defensiv gegen alte/kaputte Records
-    $('cSleep').textContent=sl?(sl.minutes/60).toFixed(1)+'h (tief '+(sl.phases.deep/60).toFixed(1)+'h)':'–';
+    // (cSleep wird unten mit dem vollen Wert inkl. REM gesetzt – konsistent zur Schlaf-Karte)
+    if(!sl) $('cSleep').textContent='–';
     const fmtT=ts=>ts?new Date(ts).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'?';
     const fmtH=m=>{const h=Math.floor(m/60),mm=m%60; return h+' Std '+mm+' Min';};
     if(sl && sl.minutes>0){
@@ -1561,6 +1599,7 @@ const UI = {
       const asleep=deep+light+rem;
       const eff=inBed>0?Math.round(asleep/inBed*100):null;
       const pct=m=>' ('+Math.round(m/Math.max(asleep,1)*100)+'%)';
+      $('cSleep').textContent=(asleep/60).toFixed(1)+'h (tief '+(deep/60).toFixed(1)+'h)';
       $('slHours').textContent=(asleep/60).toFixed(1)+' h';
       $('slDeep').textContent=fmtH(deep)+pct(deep);
       $('slRem').textContent=rem>0?fmtH(rem)+pct(rem):'–';
