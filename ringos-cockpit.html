@@ -4,7 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#05070a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RingOS">
 <title>RingOS // Cockpit</title>
+<!-- Homescreen-Icon (iPhone): echtes Ring-Logo statt grauer Kachel -->
+<link rel="apple-touch-icon" href="data:image/png;base64,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">
 <!-- PWA-Manifest inline (greift, wenn die Datei gehostet wird, z.B. GitHub Pages) -->
 <link rel="manifest" href='data:application/manifest+json,{"name":"RingOS","short_name":"RingOS","display":"standalone","background_color":"%2305070a","theme_color":"%2305070a","start_url":".","icons":[]}'>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.4/dexie.min.js"></script>
@@ -119,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.0</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.1</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
