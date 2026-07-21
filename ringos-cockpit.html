@@ -11,10 +11,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   :root{
-    --bg:#0b0d10; --panel:#15181d; --panel2:#1e2228; --border:#282d35;
-    --text:#c7ccd4; --bright:#f4f6f8; --muted:#79808c;
-    --cy:#4dd0b8; --gn:#5bcf8a; --yl:#e8c268; --rd:#e88a8a; --bl:#7aa8e0; --pu:#b0a0e8;
-    --gold:#cbb694;
+    --bg:#080a12; --panel:#141926; --panel2:#1e2536; --border:#2b3350;
+    --text:#cfd6e6; --bright:#ffffff; --muted:#8590aa;
+    --cy:#22e3c4; --gn:#3ce87d; --yl:#ffcf3f; --rd:#ff6b74; --bl:#4d9dff; --pu:#a882ff; --pink:#ff6fd8;
+    --gold:#e6c27a;
     --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,'Helvetica Neue',sans-serif;
     --mono:'SF Mono','Cascadia Code','JetBrains Mono',Consolas,monospace;
   }
@@ -40,8 +40,9 @@
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
   @media(max-width:640px){.grid,.grid3{grid-template-columns:1fr}}
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px}
-  .panel h2{font-size:11px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;
-    font-weight:600;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+  .panel h2{font-size:11px;letter-spacing:.16em;color:#9aa5bf;text-transform:uppercase;
+    font-weight:700;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+  .panel{position:relative}
   .kv{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:13px;
     border-bottom:1px solid rgba(38,48,74,.4)}
   .kv:last-child{border-bottom:none}
@@ -49,22 +50,22 @@
   .kv .v{color:var(--bright);font-weight:500;font-variant-numeric:tabular-nums}
   .k-sub{font-size:10px;color:#54607a;letter-spacing:.02em}
   .ph-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
-  .big{font-size:42px;color:var(--bright);font-weight:600;line-height:1.05;font-variant-numeric:tabular-nums}
+  .big{font-size:46px;color:var(--bright);font-weight:700;line-height:1.02;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
   .big small{font-size:13px;color:var(--muted);font-weight:400}
   .unit{color:var(--muted);font-size:12px}
 
   /* Recovery-Hero */
-  .hero{background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:28px 20px;
+  .hero{background:linear-gradient(165deg,#1a2236,#0e1320);border:1px solid var(--border);border-radius:24px;padding:30px 20px;
     margin-bottom:14px;text-align:center;position:relative;overflow:hidden}
-  .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.55;
-    background:radial-gradient(360px 200px at 50% -20%,var(--glow,rgba(77,208,184,.12)),transparent)}
-  .gauge{position:relative;width:210px;height:210px;margin:6px auto 8px}
-  .gauge svg{transform:rotate(-90deg);filter:drop-shadow(0 0 10px rgba(0,0,0,.3))}
-  .gauge .fg{transition:stroke-dashoffset 1.2s cubic-bezier(.34,.02,.16,1), stroke .6s}
+  .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.9;
+    background:radial-gradient(440px 260px at 50% -15%,var(--glow,rgba(34,227,196,.22)),transparent)}
+  .gauge{position:relative;width:220px;height:220px;margin:6px auto 8px}
+  .gauge svg{transform:rotate(-90deg)}
+  .gauge .fg{transition:stroke-dashoffset 1.2s cubic-bezier(.34,.02,.16,1), stroke .6s;filter:drop-shadow(0 0 8px currentColor)}
   .gauge .ctr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-  .gauge .num{font-size:60px;font-weight:600;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
-  .gauge .pct{font-size:11px;color:var(--muted);letter-spacing:.28em;margin-top:4px;font-weight:500}
-  .hero .verdict{font-size:18px;font-weight:600;margin-top:6px;letter-spacing:.01em}
+  .gauge .num{font-size:72px;font-weight:700;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .gauge .pct{font-size:11px;color:var(--muted);letter-spacing:.3em;margin-top:2px;font-weight:600}
+  .hero .verdict{font-size:19px;font-weight:700;margin-top:8px;letter-spacing:.01em}
   .hero .advice{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.6;max-width:440px;margin-left:auto;margin-right:auto}
   .factors{display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap}
   .factor{background:rgba(38,48,74,.4);border:1px solid var(--border);border-radius:14px;padding:10px 14px;min-width:100px}
@@ -118,7 +119,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v12.0</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v13.0</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -156,7 +157,7 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       </details>
     </div>
     <span id="rdScore" style="display:none"></span><span id="rdLabel" style="display:none"></span>
-    <div class="panel" id="focusPanel">
+    <div class="panel" id="focusPanel" style="background:linear-gradient(135deg,rgba(34,227,196,.09),rgba(168,130,255,.07));border-color:#2f3a58">
       <h2>Fokus &amp; Lern-Bereitschaft <span class="badge">Coach</span></h2>
       <div style="display:flex;align-items:center;gap:16px">
         <div style="display:flex;align-items:baseline;gap:6px"><span class="big" id="focusScore" style="font-size:40px">–</span><span class="unit">/ 100</span></div>
