@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.1</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.2</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -278,7 +278,8 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
         </div>
         <div class="note">State-Machine: <b id="smState">disconnected</b> · Auto-Reconnect: <span id="smRetry">aus</span><br>
         <b>iPhone-Tipp:</b> App einfach schließen (NICHT „TRENNEN") – beim Wiederöffnen dockt RingOS
-        automatisch an. Nur wenn's mal hakt: „CONNECT".</div>
+        automatisch an (jetzt mit 5 Andock-Versuchen + je 4× GATT-Retry, viel robuster).
+        Nur wenn's mal hakt: „SCHNELL-VERBINDEN", zur Not „CONNECT".</div>
         <div class="statusline" id="liveStatus"></div>
       </div>
     </div>
@@ -884,9 +885,25 @@ const BLE = {
       await this._open();
     }catch(e){ this.setState('disconnected'); $('liveStatus').textContent='Abbruch: '+e.message; }
   },
+  /* iOS/BLE robust: gatt.connect() scheitert am iPhone oft beim 1. Versuch direkt
+     nach App-Wechsel („connection failed"). Deshalb bis zu 4× mit wachsender Pause. */
+  async _gattConnect(tries=4){
+    let lastErr;
+    for(let i=0;i<tries;i++){
+      try{
+        if(this.device.gatt.connected) return this.device.gatt;
+        return await this.device.gatt.connect();
+      }catch(e){
+        lastErr=e;
+        Dbg.log('info','GATT-Connect '+(i+1)+'/'+tries+' fehlgeschlagen: '+e.message);
+        if(i<tries-1) await new Promise(r=>setTimeout(r, 700+i*600));
+      }
+    }
+    throw lastErr||new Error('GATT connect fehlgeschlagen');
+  },
   async _open(){
     this.setState('connecting');
-    const server = await this.device.gatt.connect();
+    const server = await this._gattConnect();
     const svc = await server.getPrimaryService(Codec.SVC);
     this.rx = await svc.getCharacteristic(Codec.RX);
     const tx = await svc.getCharacteristic(Codec.TX);
@@ -1858,18 +1875,25 @@ UI.initTags(); UI.renderCockpit(); UI.dbCount();
 /* iOS/Bluefy-Strategie: Verbindung NICHT beim Schließen trennen (iOS hält den Ring eh),
    sondern beim Öffnen wieder andocken. Das umgeht das „Gerät ignorieren"-Müssen.
    Beim Zurückkommen in den Vordergrund automatisch neu andocken, mit ein paar Versuchen. */
+let _reconnecting=false;
 async function autoReconnectLoop(){
-  if(BLE.state==='ready') return;
-  for(let i=0;i<3;i++){
-    const ok=await BLE.reconnectKnown(true);
-    if(ok) return;
-    await new Promise(r=>setTimeout(r,1200));
-  }
+  if(BLE.state==='ready'||_reconnecting) return;
+  _reconnecting=true;
+  try{
+    for(let i=0;i<5;i++){
+      if(BLE.state==='ready') return;
+      const ok=await BLE.reconnectKnown(true);
+      if(ok) return;
+      await new Promise(r=>setTimeout(r, 1500));
+    }
+  } finally { _reconnecting=false; }
 }
 window.addEventListener('load', ()=>setTimeout(autoReconnectLoop, 700));
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='visible') setTimeout(autoReconnectLoop, 400);
 });
+window.addEventListener('focus', ()=>setTimeout(autoReconnectLoop, 400));
+window.addEventListener('pageshow', ()=>setTimeout(autoReconnectLoop, 500));
 /* PWA-Install: braucht Hosting (https) + separate sw.js – als lokale Datei läuft alles,
    nur der "Installieren"-Prompt fehlt. Beim GitHub-Pages-Deploy legen wir sw.js daneben. */
 </script>
