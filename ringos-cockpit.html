@@ -11,27 +11,22 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   :root{
-    --bg:#070910; --panel:#111725; --panel2:#1a2233; --border:#26304a;
-    --text:#cdd5e4; --bright:#f5f8ff; --muted:#77839b;
-    --cy:#37d7c4; --gn:#4ade80; --yl:#f5c451; --rd:#f2777d; --bl:#6aa4f5; --pu:#a78bfa;
-    --gold:#d8b98a;
+    --bg:#0b0d10; --panel:#15181d; --panel2:#1e2228; --border:#282d35;
+    --text:#c7ccd4; --bright:#f4f6f8; --muted:#79808c;
+    --cy:#4dd0b8; --gn:#5bcf8a; --yl:#e8c268; --rd:#e88a8a; --bl:#7aa8e0; --pu:#b0a0e8;
+    --gold:#cbb694;
     --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,'Helvetica Neue',sans-serif;
     --mono:'SF Mono','Cascadia Code','JetBrains Mono',Consolas,monospace;
   }
   *{margin:0;padding:0;box-sizing:border-box}
-  body{background:
-      radial-gradient(1100px 520px at 50% -240px,#182238,transparent),
-      radial-gradient(700px 400px at 100% 0,#141c2e,transparent),
-      var(--bg);
-    background-attachment:fixed;color:var(--text);font-family:var(--sans);font-size:14px;
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;
     padding-bottom:78px;min-height:100vh;-webkit-font-smoothing:antialiased;letter-spacing:.005em}
-  .app{max-width:880px;margin:0 auto;padding:16px 14px}
+  .app{max-width:820px;margin:0 auto;padding:16px 14px}
 
   /* Statusbar */
   .statusbar{display:flex;justify-content:space-between;align-items:center;
-    border:1px solid var(--border);background:rgba(17,23,37,.72);backdrop-filter:blur(14px);
-    padding:12px 16px;border-radius:16px;margin-bottom:14px;flex-wrap:wrap;gap:6px;
-    box-shadow:0 8px 30px rgba(0,0,0,.35)}
+    border:1px solid var(--border);background:var(--panel);
+    padding:12px 16px;border-radius:14px;margin-bottom:14px;flex-wrap:wrap;gap:6px}
   .statusbar .logo{font-weight:600;color:var(--bright);letter-spacing:.14em;font-size:15px}
   .logo span{color:var(--cy)}
   .sb{display:flex;gap:16px;font-size:11px;color:var(--muted);flex-wrap:wrap;font-family:var(--mono)}
@@ -44,9 +39,7 @@
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
   @media(max-width:640px){.grid,.grid3{grid-template-columns:1fr}}
-  .panel{background:linear-gradient(180deg,rgba(26,34,51,.55),rgba(17,23,37,.75));
-    border:1px solid var(--border);border-radius:18px;padding:18px;margin-bottom:14px;
-    box-shadow:0 6px 24px rgba(0,0,0,.28)}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px}
   .panel h2{font-size:11px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;
     font-weight:600;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
   .kv{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:13px;
@@ -61,11 +54,10 @@
   .unit{color:var(--muted);font-size:12px}
 
   /* Recovery-Hero */
-  .hero{background:linear-gradient(165deg,rgba(28,37,56,.7),rgba(15,20,32,.9));
-    border:1px solid var(--border);border-radius:22px;padding:28px 20px;margin-bottom:14px;
-    text-align:center;position:relative;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.4)}
-  .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.7;
-    background:radial-gradient(420px 240px at 50% -12%,var(--glow,rgba(52,211,153,.16)),transparent)}
+  .hero{background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:28px 20px;
+    margin-bottom:14px;text-align:center;position:relative;overflow:hidden}
+  .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.55;
+    background:radial-gradient(360px 200px at 50% -20%,var(--glow,rgba(77,208,184,.12)),transparent)}
   .gauge{position:relative;width:210px;height:210px;margin:6px auto 8px}
   .gauge svg{transform:rotate(-90deg);filter:drop-shadow(0 0 10px rgba(0,0,0,.3))}
   .gauge .fg{transition:stroke-dashoffset 1.2s cubic-bezier(.34,.02,.16,1), stroke .6s}
@@ -83,11 +75,11 @@
   details.formwrap{margin-top:14px;text-align:left}
   details.formwrap summary{cursor:pointer;font-size:10px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
 
-  button{font-family:var(--sans);font-size:12.5px;font-weight:500;background:rgba(38,48,74,.45);color:var(--text);
-    border:1px solid var(--border);border-radius:12px;padding:10px 15px;cursor:pointer;transition:.18s;letter-spacing:.02em}
-  button:hover{border-color:var(--cy);color:var(--bright);background:rgba(55,215,196,.08)}
+  button{font-family:var(--sans);font-size:12.5px;font-weight:500;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:11px;padding:10px 15px;cursor:pointer;transition:.15s;letter-spacing:.02em}
+  button:hover{border-color:var(--cy);color:var(--bright)}
   button:active{transform:scale(.97)}
-  button.pri{background:linear-gradient(180deg,rgba(55,215,196,.2),rgba(55,215,196,.1));border-color:rgba(55,215,196,.5);color:var(--cy)}
+  button.pri{background:rgba(77,208,184,.12);border-color:rgba(77,208,184,.4);color:var(--cy)}
   button:disabled{opacity:.35;cursor:not-allowed}
   .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   input,select{font-family:var(--mono);font-size:12px;background:var(--panel2);color:var(--text);
@@ -113,7 +105,7 @@
   th{color:var(--muted);font-weight:500}
   .ok{color:var(--gn)} .unv{color:var(--yl)}
 
-  nav{position:fixed;bottom:0;left:0;right:0;background:rgba(11,15,24,.85);backdrop-filter:blur(18px);
+  nav{position:fixed;bottom:0;left:0;right:0;background:var(--panel);
     border-top:1px solid var(--border);z-index:10}
   .navin{max-width:880px;margin:0 auto;display:flex;padding:0 4px}
   .tab{flex:1;background:none;border:none;border-radius:0;padding:14px 2px 16px;color:var(--muted);
@@ -126,7 +118,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v11.0</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v11.1</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -230,7 +222,7 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       <div class="kv"><span class="k"><span class="ph-dot" style="background:#a78bfa"></span>Tiefschlaf <span class="k-sub">Körper-Erholung</span></span><span class="v" id="slDeep">–</span></div>
       <div class="kv"><span class="k"><span class="ph-dot" style="background:#f0abfc"></span>REM <span class="k-sub">Träume, Gedächtnis</span></span><span class="v" id="slRem">–</span></div>
       <div class="kv"><span class="k"><span class="ph-dot" style="background:#60a5fa"></span>Leichtschlaf</span><span class="v" id="slLight">–</span></div>
-      <div class="kv"><span class="k"><span class="ph-dot" style="background:#f87171"></span>Wach im Bett</span><span class="v" id="slAwake">–</span></div>
+      <div class="kv"><span class="k"><span class="ph-dot" style="background:#f87171"></span>Aufgewacht <span class="k-sub">aus Puls erkannt</span></span><span class="v" id="slAwake">–</span></div>
       <div class="kv"><span class="k">Im Bett / Effizienz</span><span class="v" id="slWake">–</span></div>
       <div class="kv"><span class="k">Ins Bett / Aufgestanden</span><span class="v" id="slTimes">–</span></div>
     </div>
@@ -1218,18 +1210,37 @@ const Analytics = {
     if(rows.length<6) return null;
     const rhrB=await this.baseline(day,'rhr'); const rest=rhrB?rhrB.mean:Math.min(...rows.map(r=>r.bpm));
     const d=await db.daily.get(day);
-    let e = d&&d.readiness!=null ? d.readiness : 60;    // Start = Erholung
+    let e = d&&d.readiness!=null ? d.readiness : 65;    // Start = Erholung
     const series=[];
+    /* Sanftes Modell: Ruhe lädt, leichte Aktivität kostet fast nichts,
+       nur echte Anstrengung (deutlich über Ruhepuls) entlädt spürbar. */
     for(const r of rows){
       const over=r.bpm-rest;
-      if(over<8) e += 0.9;                              // Ruhe/Schlaf → laden
-      else e -= over*0.06;                             // Belastung → entladen ∝ Intensität
-      e=Math.max(0,Math.min(100,e));
+      if(over<12) e += 0.8;                             // Ruhe/Schlaf → laden
+      else if(over<40) e -= 0.05;                       // Alltag → kaum Verbrauch
+      else e -= (over-40)*0.035 + 0.15;                 // echte Belastung → spürbar
+      e=Math.max(5,Math.min(100,e));                    // nie ganz auf 0
       series.push({t:r.ts, e:Math.round(e)});
     }
     const now=series[series.length-1].e;
     const trend = series.length>6 ? now-series[series.length-6].e : 0;
     return {now, trend, series};
+  },
+  /* Echte Aufwacher aus dem Nacht-Puls: kurze Puls-Sprünge während des Schlafs
+     verraten Wachphasen, die der Ring selbst oft nicht meldet. */
+  async detectWakeups(bedTs, wakeTs){
+    if(!bedTs||!wakeTs||wakeTs<=bedTs) return null;
+    const rows=(await db.hr.where('ts').between(bedTs,wakeTs).toArray()).sort((a,b)=>a.ts-b.ts);
+    if(rows.length<6) return null;
+    const bpms=rows.map(r=>r.bpm).sort((a,b)=>a-b);
+    const sleepBase=bpms[Math.floor(bpms.length*0.3)];   // typischer Schlafpuls
+    const thr=sleepBase+14;                               // Sprung = wahrscheinlich wach
+    let wakeups=0, awakeMin=0, inSpike=false;
+    for(const r of rows){
+      if(r.bpm>thr){ awakeMin+=5; if(!inSpike){ wakeups++; inSpike=true; } }
+      else inSpike=false;
+    }
+    return {wakeups, awakeMin};
   }
 };
 
@@ -1554,7 +1565,11 @@ const UI = {
       $('slDeep').textContent=fmtH(deep)+pct(deep);
       $('slRem').textContent=rem>0?fmtH(rem)+pct(rem):'–';
       $('slLight').textContent=fmtH(light)+pct(light);
-      $('slAwake').textContent=awake>0?fmtH(awake):'0 min';
+      // Echte Aufwacher aus dem Nacht-Puls (Ring meldet oft 0)
+      const hw=await Analytics.detectWakeups(sl.bed, sl.wake);
+      const realWakeups=hw?Math.max(sl.wakeups||0, hw.wakeups):(sl.wakeups||0);
+      const realAwake=hw?Math.max(awake, hw.awakeMin):awake;
+      $('slAwake').textContent=realWakeups+'× wach'+(realAwake>0?' · '+fmtH(realAwake):'');
       $('slWake').textContent=inBed>0?fmtH(inBed)+(eff!=null?' · '+eff+'%':''):((sl.wakeups||0)+'× wach');
       $('slTimes').textContent=fmtT(sl.bed)+' → '+fmtT(sl.wake);
       sl.minutes=asleep;   // für die Zusammenfassung unten
