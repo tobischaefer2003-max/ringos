@@ -104,7 +104,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.4 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.5 // cockpit</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -205,8 +205,8 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
         </div>
       </div>
       <div class="kv"><span class="k">Tiefschlaf</span><span class="v" id="slDeep">–</span></div>
-      <div class="kv"><span class="k">Leichtschlaf</span><span class="v" id="slLight">–</span></div>
-      <div class="kv"><span class="k">Aufgewacht</span><span class="v" id="slWake">–</span></div>
+      <div class="kv"><span class="k">Leicht / REM</span><span class="v" id="slLight">–</span></div>
+      <div class="kv"><span class="k">Im Bett / Effizienz</span><span class="v" id="slWake">–</span></div>
       <div class="kv"><span class="k">Ins Bett / Aufgestanden</span><span class="v" id="slTimes">–</span></div>
     </div>
     <div class="panel">
@@ -1514,11 +1514,22 @@ const UI = {
     const fmtT=ts=>ts?new Date(ts).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'?';
     const fmtH=m=>{const h=Math.floor(m/60),mm=m%60; return h+' Std '+mm+' Min';};
     if(sl && sl.minutes>0){
-      $('slHours').textContent=(sl.minutes/60).toFixed(1)+' h';
-      $('slDeep').textContent=fmtH(sl.phases.deep)+' ('+Math.round(sl.phases.deep/sl.minutes*100)+'%)';
-      $('slLight').textContent=fmtH(sl.phases.light);
-      $('slWake').textContent=(sl.wakeups||0)+'× aufgewacht';
+      // Aus den Perioden die volle Aufschlüsselung rechnen (inkl. REM = Typ 4, und Wach)
+      let deep=sl.phases.deep, light=sl.phases.light, rem=0, awake=0, inBed=0;
+      if(sl.periods && sl.periods.length){
+        deep=light=rem=awake=inBed=0;
+        for(const p of sl.periods){ inBed+=p.mins;
+          if(p.type===3) deep+=p.mins; else if(p.type===2) light+=p.mins;
+          else if(p.type===4) rem+=p.mins; else if(p.type===5) awake+=p.mins; }
+      }
+      const asleep=deep+light+rem;
+      const eff=inBed>0?Math.round(asleep/inBed*100):null;
+      $('slHours').textContent=(asleep/60).toFixed(1)+' h';
+      $('slDeep').textContent=fmtH(deep)+' ('+Math.round(deep/Math.max(asleep,1)*100)+'%)';
+      $('slLight').textContent=fmtH(light)+(rem>0?' · REM '+fmtH(rem):'');
+      $('slWake').textContent=inBed>0?'Im Bett '+fmtH(inBed)+(eff!=null?' · '+eff+'% Effizienz':''):((sl.wakeups||0)+'× wach');
       $('slTimes').textContent=fmtT(sl.bed)+' → '+fmtT(sl.wake);
+      sl.minutes=asleep;   // für die Zusammenfassung unten
       const q=sl.minutes>=420?'Gut ausgeschlafen':sl.minutes>=360?'Solide Nacht':sl.minutes>=270?'Etwas kurz':'Wenig Schlaf';
       const datInfo=sl.day===day?'':' (Nacht auf '+sl.day+')';
       const quelle=sl.src==='native'?' · aus Ring-Schlafphasen':' · aus Puls-Heuristik';
