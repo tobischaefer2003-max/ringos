@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.4</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.5</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -498,6 +498,14 @@ const store = {
 };
 let settings = store.get('ro_set') || {};
 if(settings.age==null){ settings.age = 23; store.set('ro_set', settings); }  // Standard-Alter
+
+/* BLE-Fehler oft als DOMException ohne .message → echten Grund lesbar machen (name + message). */
+function errStr(e){
+  if(e==null) return 'unbekannt';
+  const n = e.name ? e.name+': ' : '';
+  const m = e.message || String(e);
+  return (n+m).trim() || 'unbekannter Fehler';
+}
 
 const Store = {
   async putHrBulk(rows){ await db.hr.bulkPut(rows); UI.dbCount(); },       // bulkPut = idempotent (Key ts)
@@ -880,7 +888,7 @@ const BLE = {
       this.device.addEventListener('gattserverdisconnected',()=>this.onDrop());
       this.wantReconnect=true; this.retries=0;
       await this._open();
-    }catch(e){ this.setState('disconnected'); $('liveStatus').textContent='Abbruch: '+e.message+' – probier CONNECT (ALLE GERÄTE)'; }
+    }catch(e){ this.setState('disconnected'); Dbg.log('err','CONNECT: '+errStr(e)); $('liveStatus').textContent='Abbruch: '+errStr(e)+' – probier CONNECT (ALLE GERÄTE)'; }
   },
   /* Fallback v.a. für Bluefy/iOS: manche Web-BLE-Browser zeigen bei Filter-Scans
      keine Geräte an. acceptAllDevices listet alles – R02_xxxx von Hand auswählen. */
@@ -904,11 +912,13 @@ const BLE = {
         return await this.device.gatt.connect();
       }catch(e){
         lastErr=e;
-        Dbg.log('info','GATT-Connect '+(i+1)+'/'+tries+' fehlgeschlagen: '+e.message);
-        if(i<tries-1) await new Promise(r=>setTimeout(r, 700+i*600));
+        Dbg.log('info','GATT-Connect '+(i+1)+'/'+tries+' fehlgeschlagen: '+errStr(e));
+        // Reset-Trick: iOS hält den Ring evtl. selbst → erst sauber trennen, dann neu.
+        try{ this.device.gatt.disconnect(); }catch(_){}
+        if(i<tries-1) await new Promise(r=>setTimeout(r, 900+i*700));
       }
     }
-    throw lastErr||new Error('GATT connect fehlgeschlagen');
+    throw lastErr||new Error('GATT connect fehlgeschlagen (evtl. hält iOS den Ring – siehe Hinweis)');
   },
   async _open(){
     this.setState('connecting');
@@ -1001,7 +1011,18 @@ const BLE = {
       await this._open();
       Dbg.log('info','RECONNECT: erfolgreich ✓');
       return true;
-    }catch(e){ Dbg.log('err','RECONNECT fehlgeschlagen: '+e.message); if(!silent)$('liveStatus').textContent='Auto-Verbinden fehlgeschlagen: '+e.message+' – „CONNECT" versuchen.'; return false; }
+    }catch(e){
+      Dbg.log('err','RECONNECT fehlgeschlagen: '+errStr(e));
+      // Bluefy/iOS: stilles Andocken scheitert oft, wenn iOS den Ring hält.
+      // Wenn der Nutzer selbst „SCHNELL-VERBINDEN" gedrückt hat (silent=false), fallen wir
+      // direkt auf die normale Geräteauswahl zurück – dann klappt es zuverlässig.
+      if(!silent){
+        Dbg.log('info','RECONNECT: falle auf Geräteauswahl zurück (CONNECT)…');
+        $('liveStatus').textContent='Stilles Andocken ging nicht – öffne Geräteauswahl…';
+        try{ await this.connect(); return this.state==='ready'; }catch(_){ return false; }
+      }
+      return false;
+    }
   },
   async write(pkt){
     Dbg.log('tx','» '+hex(pkt));
