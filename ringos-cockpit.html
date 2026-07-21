@@ -11,100 +11,122 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   :root{
-    --bg:#05070a; --panel:#0a0e14; --panel2:#0f141d; --border:#1a2230;
-    --text:#c9d4e3; --bright:#eef4fc; --muted:#5a6678;
-    --cy:#2dd4bf; --gn:#4ade80; --yl:#facc15; --rd:#f87171; --bl:#60a5fa; --pu:#a78bfa;
-    --mono:'Cascadia Code','JetBrains Mono',Consolas,monospace;
+    --bg:#070910; --panel:#111725; --panel2:#1a2233; --border:#26304a;
+    --text:#cdd5e4; --bright:#f5f8ff; --muted:#77839b;
+    --cy:#37d7c4; --gn:#4ade80; --yl:#f5c451; --rd:#f2777d; --bl:#6aa4f5; --pu:#a78bfa;
+    --gold:#d8b98a;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,'Helvetica Neue',sans-serif;
+    --mono:'SF Mono','Cascadia Code','JetBrains Mono',Consolas,monospace;
   }
   *{margin:0;padding:0;box-sizing:border-box}
-  body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;padding-bottom:64px;min-height:100vh}
-  .app{max-width:860px;margin:0 auto;padding:12px}
+  body{background:
+      radial-gradient(1100px 520px at 50% -240px,#182238,transparent),
+      radial-gradient(700px 400px at 100% 0,#141c2e,transparent),
+      var(--bg);
+    background-attachment:fixed;color:var(--text);font-family:var(--sans);font-size:14px;
+    padding-bottom:78px;min-height:100vh;-webkit-font-smoothing:antialiased;letter-spacing:.005em}
+  .app{max-width:880px;margin:0 auto;padding:16px 14px}
 
   /* Statusbar */
-  .statusbar{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);
-    background:var(--panel);padding:8px 12px;border-radius:6px;margin-bottom:10px;flex-wrap:wrap;gap:6px}
-  .statusbar .logo{font-weight:700;color:var(--bright);letter-spacing:.05em}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;
+    border:1px solid var(--border);background:rgba(17,23,37,.72);backdrop-filter:blur(14px);
+    padding:12px 16px;border-radius:16px;margin-bottom:14px;flex-wrap:wrap;gap:6px;
+    box-shadow:0 8px 30px rgba(0,0,0,.35)}
+  .statusbar .logo{font-weight:600;color:var(--bright);letter-spacing:.14em;font-size:15px}
   .logo span{color:var(--cy)}
-  .sb{display:flex;gap:14px;font-size:11px;color:var(--muted);flex-wrap:wrap}
-  .sb b{color:var(--text)}
-  .st-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--rd);margin-right:4px}
-  .st-dot.ready{background:var(--gn);box-shadow:0 0 6px var(--gn)}
+  .sb{display:flex;gap:16px;font-size:11px;color:var(--muted);flex-wrap:wrap;font-family:var(--mono)}
+  .sb b{color:var(--text);font-weight:500}
+  .st-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--rd);margin-right:5px}
+  .st-dot.ready{background:var(--gn);box-shadow:0 0 10px var(--gn)}
   .st-dot.connecting{background:var(--yl);animation:blink 1s infinite}
   @keyframes blink{50%{opacity:.3}}
 
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
   @media(max-width:640px){.grid,.grid3{grid-template-columns:1fr}}
-  .panel{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px}
-  .panel h2{font-size:10px;letter-spacing:.15em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;
-    border-bottom:1px solid var(--border);padding-bottom:6px;display:flex;justify-content:space-between}
-  .kv{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
-  .kv .k{color:var(--muted)} .kv .v{color:var(--bright)}
-  .big{font-size:40px;color:var(--bright);font-weight:700;line-height:1.1}
+  .panel{background:linear-gradient(180deg,rgba(26,34,51,.55),rgba(17,23,37,.75));
+    border:1px solid var(--border);border-radius:18px;padding:18px;margin-bottom:14px;
+    box-shadow:0 6px 24px rgba(0,0,0,.28)}
+  .panel h2{font-size:11px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;
+    font-weight:600;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+  .kv{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:13px;
+    border-bottom:1px solid rgba(38,48,74,.4)}
+  .kv:last-child{border-bottom:none}
+  .kv .k{color:var(--muted);display:flex;align-items:center;gap:7px}
+  .kv .v{color:var(--bright);font-weight:500;font-variant-numeric:tabular-nums}
+  .k-sub{font-size:10px;color:#54607a;letter-spacing:.02em}
+  .ph-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
+  .big{font-size:42px;color:var(--bright);font-weight:600;line-height:1.05;font-variant-numeric:tabular-nums}
   .big small{font-size:13px;color:var(--muted);font-weight:400}
-  .unit{color:var(--muted);font-size:11px}
+  .unit{color:var(--muted);font-size:12px}
 
   /* Recovery-Hero */
-  .hero{background:linear-gradient(160deg,var(--panel),#0c1119);border:1px solid var(--border);
-    border-radius:10px;padding:22px 18px;margin-bottom:10px;text-align:center;position:relative;overflow:hidden}
-  .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.5;
-    background:radial-gradient(340px 200px at 50% -10%,var(--glow,rgba(52,211,153,.14)),transparent)}
-  .gauge{position:relative;width:200px;height:200px;margin:4px auto 6px}
-  .gauge svg{transform:rotate(-90deg)}
-  .gauge .fg{transition:stroke-dashoffset 1.1s cubic-bezier(.4,0,.2,1), stroke .6s}
+  .hero{background:linear-gradient(165deg,rgba(28,37,56,.7),rgba(15,20,32,.9));
+    border:1px solid var(--border);border-radius:22px;padding:28px 20px;margin-bottom:14px;
+    text-align:center;position:relative;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+  .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.7;
+    background:radial-gradient(420px 240px at 50% -12%,var(--glow,rgba(52,211,153,.16)),transparent)}
+  .gauge{position:relative;width:210px;height:210px;margin:6px auto 8px}
+  .gauge svg{transform:rotate(-90deg);filter:drop-shadow(0 0 10px rgba(0,0,0,.3))}
+  .gauge .fg{transition:stroke-dashoffset 1.2s cubic-bezier(.34,.02,.16,1), stroke .6s}
   .gauge .ctr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-  .gauge .num{font-size:56px;font-weight:800;line-height:1;letter-spacing:-.02em}
-  .gauge .pct{font-size:13px;color:var(--muted);letter-spacing:.15em;margin-top:2px}
-  .hero .verdict{font-size:17px;font-weight:700;margin-top:4px}
-  .hero .advice{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5;max-width:420px;margin-left:auto;margin-right:auto}
-  .factors{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap}
-  .factor{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:96px}
-  .factor .fl{font-size:10px;color:var(--muted);letter-spacing:.05em}
-  .factor .fv{font-size:16px;font-weight:700;margin-top:2px}
+  .gauge .num{font-size:60px;font-weight:600;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .gauge .pct{font-size:11px;color:var(--muted);letter-spacing:.28em;margin-top:4px;font-weight:500}
+  .hero .verdict{font-size:18px;font-weight:600;margin-top:6px;letter-spacing:.01em}
+  .hero .advice{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.6;max-width:440px;margin-left:auto;margin-right:auto}
+  .factors{display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap}
+  .factor{background:rgba(38,48,74,.4);border:1px solid var(--border);border-radius:14px;padding:10px 14px;min-width:100px}
+  .factor .fl{font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+  .factor .fv{font-size:17px;font-weight:600;margin-top:3px}
   .factor .fb{font-size:10px;margin-top:2px}
   .up{color:var(--gn)} .down{color:var(--rd)} .flat{color:var(--muted)}
-  details.formwrap{margin-top:12px;text-align:left}
-  details.formwrap summary{cursor:pointer;font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+  details.formwrap{margin-top:14px;text-align:left}
+  details.formwrap summary{cursor:pointer;font-size:10px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}
 
-  button{font-family:var(--mono);font-size:12px;background:var(--panel2);color:var(--text);
-    border:1px solid var(--border);border-radius:4px;padding:8px 12px;cursor:pointer}
-  button:hover{border-color:var(--cy);color:var(--bright)}
-  button.pri{background:rgba(45,212,191,.12);border-color:var(--cy);color:var(--cy)}
+  button{font-family:var(--sans);font-size:12.5px;font-weight:500;background:rgba(38,48,74,.45);color:var(--text);
+    border:1px solid var(--border);border-radius:12px;padding:10px 15px;cursor:pointer;transition:.18s;letter-spacing:.02em}
+  button:hover{border-color:var(--cy);color:var(--bright);background:rgba(55,215,196,.08)}
+  button:active{transform:scale(.97)}
+  button.pri{background:linear-gradient(180deg,rgba(55,215,196,.2),rgba(55,215,196,.1));border-color:rgba(55,215,196,.5);color:var(--cy)}
   button:disabled{opacity:.35;cursor:not-allowed}
-  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   input,select{font-family:var(--mono);font-size:12px;background:var(--panel2);color:var(--text);
     border:1px solid var(--border);border-radius:4px;padding:8px;color-scheme:dark}
   input:focus{outline:none;border-color:var(--cy)}
 
-  .score{font-size:52px;font-weight:700;line-height:1}
-  .formula{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:8px;
-    font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;white-space:pre-wrap}
-  .tagbtns{display:flex;gap:6px;flex-wrap:wrap}
-  .tagbtns button.on{border-color:var(--pu);color:var(--pu)}
+  .score{font-size:54px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+  .formula{background:rgba(10,14,22,.6);border:1px solid var(--border);border-radius:12px;padding:12px;
+    font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:10px;line-height:1.7;white-space:pre-wrap}
+  .tagbtns{display:flex;gap:8px;flex-wrap:wrap}
+  .tagbtns button.on{border-color:var(--pu);color:var(--pu);background:rgba(167,139,250,.12)}
 
-  .log{background:#04060a;border:1px solid var(--border);border-radius:4px;padding:8px;height:220px;
-    overflow-y:auto;font-size:11px;line-height:1.7;white-space:pre-wrap;word-break:break-all}
+  .log{background:#080b12;border:1px solid var(--border);border-radius:12px;padding:10px;height:220px;
+    overflow-y:auto;font-family:var(--mono);font-size:11px;line-height:1.7;white-space:pre-wrap;word-break:break-all}
   .log .tx{color:var(--cy)} .log .rx{color:var(--gn)} .log .err{color:var(--rd)} .log .info{color:var(--muted)}
   .chartbox{position:relative;height:190px}
-  .note{font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px}
+  .note{font-size:11.5px;color:var(--muted);line-height:1.65;margin-top:10px}
   .warn{color:var(--yl)}
-  table{width:100%;border-collapse:collapse;font-size:11px}
-  td,th{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left}
-  th{color:var(--muted);font-weight:400}
+  .badge{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);
+    border:1px solid rgba(216,185,138,.35);border-radius:20px;padding:2px 9px;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono)}
+  td,th{border-bottom:1px solid var(--border);padding:6px 6px;text-align:left}
+  th{color:var(--muted);font-weight:500}
   .ok{color:var(--gn)} .unv{color:var(--yl)}
 
-  nav{position:fixed;bottom:0;left:0;right:0;background:rgba(10,14,20,.97);border-top:1px solid var(--border);z-index:10}
-  .navin{max-width:860px;margin:0 auto;display:flex}
-  .tab{flex:1;background:none;border:none;border-radius:0;padding:12px 2px;color:var(--muted);font-size:10px;letter-spacing:.1em}
-  .tab.on{color:var(--cy);border-top:2px solid var(--cy)}
+  nav{position:fixed;bottom:0;left:0;right:0;background:rgba(11,15,24,.85);backdrop-filter:blur(18px);
+    border-top:1px solid var(--border);z-index:10}
+  .navin{max-width:880px;margin:0 auto;display:flex;padding:0 4px}
+  .tab{flex:1;background:none;border:none;border-radius:0;padding:14px 2px 16px;color:var(--muted);
+    font-size:10px;letter-spacing:.12em;font-weight:600;transition:.18s;border-top:2px solid transparent}
+  .tab.on{color:var(--cy);border-top-color:var(--cy)}
   .view{display:none}.view.on{display:block}
-  .statusline{font-size:11px;color:var(--cy);min-height:15px;margin-top:6px}
+  .statusline{font-size:11px;color:var(--cy);min-height:15px;margin-top:8px;font-family:var(--mono)}
 </style>
 </head>
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v10.5 // cockpit</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v11.0</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -196,16 +218,19 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
         <div style="display:flex;height:44px;border-radius:6px;overflow:hidden;border:1px solid var(--border)" id="hypnoBar"></div>
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:3px">
           <span id="hypnoStart"></span>
-          <span style="display:flex;gap:10px">
+          <span style="display:flex;gap:8px;flex-wrap:wrap">
             <span><span style="color:#a78bfa">■</span> Tief</span>
+            <span><span style="color:#f0abfc">■</span> REM</span>
             <span><span style="color:#60a5fa">■</span> Leicht</span>
             <span><span style="color:#f87171">■</span> Wach</span>
           </span>
           <span id="hypnoEnd"></span>
         </div>
       </div>
-      <div class="kv"><span class="k">Tiefschlaf</span><span class="v" id="slDeep">–</span></div>
-      <div class="kv"><span class="k">Leicht / REM</span><span class="v" id="slLight">–</span></div>
+      <div class="kv"><span class="k"><span class="ph-dot" style="background:#a78bfa"></span>Tiefschlaf <span class="k-sub">Körper-Erholung</span></span><span class="v" id="slDeep">–</span></div>
+      <div class="kv"><span class="k"><span class="ph-dot" style="background:#f0abfc"></span>REM <span class="k-sub">Träume, Gedächtnis</span></span><span class="v" id="slRem">–</span></div>
+      <div class="kv"><span class="k"><span class="ph-dot" style="background:#60a5fa"></span>Leichtschlaf</span><span class="v" id="slLight">–</span></div>
+      <div class="kv"><span class="k"><span class="ph-dot" style="background:#f87171"></span>Wach im Bett</span><span class="v" id="slAwake">–</span></div>
       <div class="kv"><span class="k">Im Bett / Effizienz</span><span class="v" id="slWake">–</span></div>
       <div class="kv"><span class="k">Ins Bett / Aufgestanden</span><span class="v" id="slTimes">–</span></div>
     </div>
@@ -1524,10 +1549,13 @@ const UI = {
       }
       const asleep=deep+light+rem;
       const eff=inBed>0?Math.round(asleep/inBed*100):null;
+      const pct=m=>' ('+Math.round(m/Math.max(asleep,1)*100)+'%)';
       $('slHours').textContent=(asleep/60).toFixed(1)+' h';
-      $('slDeep').textContent=fmtH(deep)+' ('+Math.round(deep/Math.max(asleep,1)*100)+'%)';
-      $('slLight').textContent=fmtH(light)+(rem>0?' · REM '+fmtH(rem):'');
-      $('slWake').textContent=inBed>0?'Im Bett '+fmtH(inBed)+(eff!=null?' · '+eff+'% Effizienz':''):((sl.wakeups||0)+'× wach');
+      $('slDeep').textContent=fmtH(deep)+pct(deep);
+      $('slRem').textContent=rem>0?fmtH(rem)+pct(rem):'–';
+      $('slLight').textContent=fmtH(light)+pct(light);
+      $('slAwake').textContent=awake>0?fmtH(awake):'0 min';
+      $('slWake').textContent=inBed>0?fmtH(inBed)+(eff!=null?' · '+eff+'%':''):((sl.wakeups||0)+'× wach');
       $('slTimes').textContent=fmtT(sl.bed)+' → '+fmtT(sl.wake);
       sl.minutes=asleep;   // für die Zusammenfassung unten
       const q=sl.minutes>=420?'Gut ausgeschlafen':sl.minutes>=360?'Solide Nacht':sl.minutes>=270?'Etwas kurz':'Wenig Schlaf';
@@ -1539,10 +1567,10 @@ const UI = {
       $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.'+datInfo+quelle+avg;
       // Hypnogramm (farbiger Zeitverlauf der Schlafphasen)
       if(sl.periods && sl.periods.length){
-        const col={2:'#60a5fa',3:'#a78bfa',5:'#f87171',1:'#232b3b',0:'#232b3b'};
+        const col={2:'#60a5fa',3:'#a78bfa',4:'#f0abfc',5:'#f87171',1:'#232b3b',0:'#232b3b'};
         const tot=sl.periods.reduce((a,p)=>a+p.mins,0)||1;
         $('hypnoBar').innerHTML=sl.periods.map(p=>
-          `<div title="${p.type===3?'Tief':p.type===2?'Leicht':p.type===5?'Wach':'–'} ${p.mins}min" style="width:${p.mins/tot*100}%;background:${col[p.type]||'#232b3b'}"></div>`).join('');
+          `<div title="${p.type===3?'Tief':p.type===2?'Leicht':p.type===4?'REM':p.type===5?'Wach':'–'} ${p.mins}min" style="width:${p.mins/tot*100}%;background:${col[p.type]||'#232b3b'}"></div>`).join('');
         $('hypnoStart').textContent=fmtT(sl.bed); $('hypnoEnd').textContent=fmtT(sl.wake);
         $('hypno').style.display='block';
       } else $('hypno').style.display='none';
