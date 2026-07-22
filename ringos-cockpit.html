@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.5</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.6</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -946,11 +946,27 @@ const BLE = {
     // (Auto-Aktivierung entfernt – hat manche Ringe zum Trennen gebracht.
     //  „Alles aktivieren" jetzt nur noch manuell im SYNC-Tab, mit Sicherheitspausen.)
     // Automatisch letzte Nacht + heutigen Puls holen → morgens reicht CONNECT
-    if(this.bigRx){ setTimeout(()=>BigData.request(39).catch(()=>{}), 2500); }
-    setTimeout(()=>Sync.syncDay(0), 2200);
+    // Morgens automatisch: ERST die genauen nativen Schlafphasen (mit Nachfassen),
+    // DANN den heutigen Puls. So steht sofort der richtige Schlaf da – ohne Knopfdruck.
+    setTimeout(()=>this.autoNightSync().finally(()=>Sync.syncDay(0)), 2300);
     /* HRV/Stress-Auto-Abruf deaktiviert – Firmware antwortet (noch) nicht auf 57/55.
        Manuell testbar über die Buttons im SYNC-Tab; sobald ein echtes Antwort-Frame
        im DEBUG-Log auftaucht, passen wir den Parser an. */
+  },
+  /* Holt die nativen Schlafphasen automatisch beim Verbinden – bis zu 3 Versuche,
+     falls der erste direkt nach dem Connect nicht durchkommt. Verhindert, dass morgens
+     die grobe Puls-Heuristik als „echter" Schlaf stehen bleibt. */
+  async autoNightSync(){
+    if(!this.bigRx) return;                 // alte Firmware ohne Big-Data → nichts zu tun
+    const today=dayKey(), y=dayKey(new Date(Date.now()-86400000));
+    for(let i=0;i<3;i++){
+      try{ await BigData.request(39); }
+      catch(e){ Dbg.log('info','Auto-Schlaf(nativ) Versuch '+(i+1)+': '+errStr(e)); }
+      await new Promise(r=>setTimeout(r, 2000));
+      const s = (await db.sleep.get(today)) || (await db.sleep.get(y));
+      if(s && s.src==='native'){ Dbg.log('info','Native Schlafphasen automatisch geladen ✓'); return; }
+    }
+    Dbg.log('info','Native Schlafphasen automatisch nicht geladen – „SCHLAFPHASEN (NATIV)" ggf. manuell.');
   },
   async writeBig(bytes){
     Dbg.log('tx','»BIG '+hex(bytes));
