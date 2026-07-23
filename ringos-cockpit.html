@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.6</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.7</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -337,11 +337,12 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       <h2>Stress-Karte heute <span class="badge">Tag</span></h2>
       <div style="display:flex;height:20px;border-radius:6px;overflow:hidden;border:1px solid var(--border)" id="stressBar"></div>
       <div style="display:flex;gap:12px;font-size:11px;color:var(--muted);margin-top:6px;flex-wrap:wrap">
-        <span><span style="color:var(--gn)">■</span> ruhig <b id="smCalm" style="color:var(--text)">–</b></span>
-        <span><span style="color:var(--bl)">■</span> aktiv <b id="smActive" style="color:var(--text)">–</b></span>
-        <span><span style="color:var(--rd)">■</span> Stress <b id="smStress" style="color:var(--text)">–</b></span>
+        <span><span style="color:#3ce87d">■</span> ruhig <b id="smCalm" style="color:var(--text)">–</b></span>
+        <span><span style="color:#4d9dff">■</span> leicht erhöht <b id="smLight" style="color:var(--text)">–</b></span>
+        <span><span style="color:#a882ff">■</span> aktiv <b id="smActive" style="color:var(--text)">–</b></span>
+        <span><span style="color:#ff6b74">■</span> Stress <b id="smStress" style="color:var(--text)">–</b></span>
       </div>
-      <div class="note" id="smNote">Puls hoch bei kaum Bewegung = mentaler Stress (z.B. Lernen, Prüfung). Braucht Puls-Daten von heute (sync).</div>
+      <div class="note" id="smNote">Puls hoch bei kaum Bewegung = mentaler Stress (z.B. Lernen, Prüfung). Schlafzeit wird ausgeblendet. Braucht Puls-Daten von heute (sync).</div>
     </div>
     <div class="panel">
       <h2>Herz &amp; Nervensystem <span class="badge">Forschung</span></h2>
@@ -1391,8 +1392,12 @@ const Analytics = {
     const rest=(await this.baseline(day,'rhr'))?.mean || Math.min(...hr.map(r=>r.bpm));
     const steps=await db.steps.where('day').equals(day).toArray();
     const activeBlocks=new Set(steps.filter(s=>s.steps>120).map(s=>s.idx)); // 15-Min-Blöcke mit Bewegung
+    // Schlafzeit ausblenden – sonst zählt die Nacht als „ruhig" (oder REM-Puls fälschlich als Stress)
+    const slp=await db.sleep.get(day);
+    const inSleep = ts => slp && slp.bed && slp.wake && ts>=slp.bed && ts<=slp.wake;
     let calm=0,active=0,stress=0,light=0; const byHour={};
     for(const r of hr){
+      if(inSleep(r.ts)) continue;
       const min=(r.ts-start)/60000; const block=Math.floor(min/15);
       if(activeBlocks.has(block)){ active+=5; continue; }
       if(r.bpm>rest+16){ stress+=5; const h=Math.floor(min/60); byHour[h]=(byHour[h]||0)+5; }
@@ -1841,7 +1846,7 @@ const UI = {
       if(sm && sm.total>0){
         const seg=(m,c)=>m>0?`<div style="width:${m/sm.total*100}%;background:${c}"></div>`:'';
         $('stressBar').innerHTML=seg(sm.calm,'#3ce87d')+seg(sm.light,'#4d9dff')+seg(sm.active,'#a882ff')+seg(sm.stress,'#ff6b74');
-        $('smCalm').textContent=fmtH(sm.calm); $('smActive').textContent=fmtH(sm.active); $('smStress').textContent=fmtH(sm.stress);
+        $('smCalm').textContent=fmtH(sm.calm); $('smLight').textContent=fmtH(sm.light); $('smActive').textContent=fmtH(sm.active); $('smStress').textContent=fmtH(sm.stress);
         $('smNote').textContent = sm.stress>60
           ? 'Heute '+fmtH(sm.stress)+' mental gestresst'+(sm.peakHour!=null?', am meisten um '+sm.peakHour+':00 Uhr':'')+'. Plan Pausen ein.'
           : 'Entspannter Tag – wenig mentaler Stress ('+fmtH(sm.stress)+'). 👍';
