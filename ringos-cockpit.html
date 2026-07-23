@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.7</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.8</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -1786,7 +1786,7 @@ const UI = {
       // 7-Tage-Schnitt
       const allSleep=await db.sleep.orderBy('day').reverse().limit(7).toArray();
       const avg=allSleep.length>1?' · 7-Tage-Schnitt '+(allSleep.reduce((a,s)=>a+s.minutes,0)/allSleep.length/60).toFixed(1)+'h':'';
-      $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(sl.wakeups?', '+sl.wakeups+'× kurz wach':'')+'. '+q+'.'+datInfo+quelle+avg;
+      $('slSummary').textContent='Du hast '+fmtH(sl.minutes)+' geschlafen'+(realWakeups?', '+realWakeups+'× kurz wach':'')+'. '+q+'.'+datInfo+quelle+avg;
       // Hypnogramm (farbiger Zeitverlauf der Schlafphasen)
       if(sl.periods && sl.periods.length){
         const col={2:'#60a5fa',3:'#a78bfa',4:'#f0abfc',5:'#f87171',1:'#232b3b',0:'#232b3b'};
@@ -1804,7 +1804,7 @@ const UI = {
       $('slSummary').textContent = nRows.length<12
         ? 'Zu wenige Nacht-Messpunkte ('+nRows.length+'). Ring saß evtl. locker oder Logging lief noch nicht. Heute Nacht eng tragen.'
         : nRows.length+' Messpunkte da, aber kein klares Schlaffenster erkannt. Drück „NEU BERECHNEN" im SYNC-Tab.';
-      ['slDeep','slLight','slWake','slTimes'].forEach(id=>$(id).textContent='–');
+      ['slDeep','slRem','slLight','slAwake','slWake','slTimes'].forEach(id=>$(id).textContent='–');
     }
     }catch(e){ Dbg.log('err','Schlaf-Karte-Fehler: '+e.message); }
     const an=await Analytics.anomalies(7);
