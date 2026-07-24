@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.8</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.9</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -823,15 +823,16 @@ const BigData = {
       const start=b[o]|(b[o+1]<<8); o+=2;
       const end=b[o]|(b[o+1]<<8); o+=2;
       const periodsBytes=curDayBytes-4;                 // Rest = Perioden-Paare
-      let deep=0,light=0,awake=0,total=0,wakeups=0,prev=null;
+      let deep=0,light=0,rem=0,awake=0,total=0,wakeups=0,prev=null;
       const periods=[];                                 // Sequenz für Hypnogramm
       for(let k=0;k<periodsBytes && o+1<b.length;k+=2){
         const type=b[o++], mins=b[o++];
         periods.push({type,mins});
         if(type===3) deep+=mins;
         else if(type===2) light+=mins;
+        else if(type===4) rem+=mins;
         else if(type===5){ awake+=mins; if(prev!==5&&prev!==null) wakeups++; }
-        if(type===2||type===3) total+=mins;
+        if(type===2||type===3||type===4) total+=mins;   // REM zählt als Schlaf!
         prev=type;
       }
       // Datum = heute - daysAgo (lokal)
@@ -840,7 +841,7 @@ const BigData = {
       const bedTs=dt.getTime()+start*60000;
       let wakeTs=dt.getTime()+end*60000;
       if(end<=start) wakeTs+=86400000;   // Aufwachen am Folgetag (Schlaf über Mitternacht)
-      results.push({day, minutes:total, phases:{deep,light}, awake, wakeups, bed:bedTs, wake:wakeTs, periods, src:'native'});
+      results.push({day, minutes:total, phases:{deep,light,rem}, awake, wakeups, bed:bedTs, wake:wakeTs, periods, src:'native'});
     }
     if(!results.length){ Sync.done('Native Schlafdaten: keine.'); return; }
     (async()=>{
@@ -1389,22 +1390,26 @@ const Analytics = {
     const start=new Date(day+'T00:00:00').getTime();
     const hr=(await db.hr.where('ts').between(start,start+86400000).toArray()).sort((a,b)=>a.ts-b.ts);
     if(hr.length<12) return null;
-    const rest=(await this.baseline(day,'rhr'))?.mean || Math.min(...hr.map(r=>r.bpm));
     const steps=await db.steps.where('day').equals(day).toArray();
     const activeBlocks=new Set(steps.filter(s=>s.steps>120).map(s=>s.idx)); // 15-Min-Blöcke mit Bewegung
-    // Schlafzeit ausblenden – sonst zählt die Nacht als „ruhig" (oder REM-Puls fälschlich als Stress)
+    // Schlafzeit ausblenden – nur der wache Tag zählt
     const slp=await db.sleep.get(day);
     const inSleep = ts => slp && slp.bed && slp.wake && ts>=slp.bed && ts<=slp.wake;
+    const awake = hr.filter(r=>r.bpm>0 && !inSleep(r.ts));
+    if(awake.length<12) return null;
+    // Persönliche TAGES-Baseline: 25%-Perzentil des Wachpulses = entspanntes Wachniveau.
+    // (NICHT der Nacht-Ruhepuls – sonst gilt jeder normale Wachpuls fälschlich als „Stress".)
+    const sorted=[...awake.map(r=>r.bpm)].sort((a,b)=>a-b);
+    const base=sorted[Math.floor(0.25*(sorted.length-1))];
     let calm=0,active=0,stress=0,light=0; const byHour={};
-    for(const r of hr){
-      if(inSleep(r.ts)) continue;
+    for(const r of awake){
       const min=(r.ts-start)/60000; const block=Math.floor(min/15);
-      if(activeBlocks.has(block)){ active+=5; continue; }
-      if(r.bpm>rest+16){ stress+=5; const h=Math.floor(min/60); byHour[h]=(byHour[h]||0)+5; }
-      else if(r.bpm>rest+6) light+=5; else calm+=5;
+      if(activeBlocks.has(block)){ active+=5; continue; }                    // Bewegung → körperlich aktiv
+      if(r.bpm>base+22){ stress+=5; const h=Math.floor(min/60); byHour[h]=(byHour[h]||0)+5; } // klar erhöht ohne Bewegung → mentaler Stress
+      else if(r.bpm>base+9) light+=5; else calm+=5;
     }
     const peak=Object.entries(byHour).sort((a,b)=>b[1]-a[1])[0];
-    return {calm,active,stress,light,peakHour:peak?+peak[0]:null,total:calm+active+stress+light};
+    return {calm,active,stress,light,base,noSteps:steps.length===0,peakHour:peak?+peak[0]:null,total:calm+active+stress+light};
   },
   /* Fokus- / Lern-Bereitschaft: kein direkter Sensor, sondern aus Physiologie abgeleitet.
      Erholtes Nervensystem (hohe Erholung, hohe HRV) + guter Schlaf + wenig Stress
@@ -1847,9 +1852,10 @@ const UI = {
         const seg=(m,c)=>m>0?`<div style="width:${m/sm.total*100}%;background:${c}"></div>`:'';
         $('stressBar').innerHTML=seg(sm.calm,'#3ce87d')+seg(sm.light,'#4d9dff')+seg(sm.active,'#a882ff')+seg(sm.stress,'#ff6b74');
         $('smCalm').textContent=fmtH(sm.calm); $('smLight').textContent=fmtH(sm.light); $('smActive').textContent=fmtH(sm.active); $('smStress').textContent=fmtH(sm.stress);
-        $('smNote').textContent = sm.stress>60
+        const hint = sm.noSteps ? ' · Tipp: „SCHRITTE HEUTE" syncen trennt aktiv/Stress genauer.' : '';
+        $('smNote').textContent = (sm.stress>60
           ? 'Heute '+fmtH(sm.stress)+' mental gestresst'+(sm.peakHour!=null?', am meisten um '+sm.peakHour+':00 Uhr':'')+'. Plan Pausen ein.'
-          : 'Entspannter Tag – wenig mentaler Stress ('+fmtH(sm.stress)+'). 👍';
+          : 'Entspannter Tag – wenig mentaler Stress ('+fmtH(sm.stress)+'). 👍') + hint;
       } else $('smNote').textContent='Noch keine Tagesdaten. Ring tragen + „HEUTE SYNCEN".';
     }catch(e){ Dbg.log('err','Stress-Karte: '+e.message); }
   },
