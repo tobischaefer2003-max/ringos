@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v14.9</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v15.0</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -1184,9 +1184,13 @@ const Analytics = {
     const factors=[]; const parts=[];
     // Schlaf
     if(sleep){
-      const hrs=sleep.minutes/60;
+      // Schlafminuten robust aus den Phasen (inkl. REM) – damit alte Records ohne Re-Sync stimmen
+      const P=sleep.periods&&sleep.periods.length?sleep.periods:null;
+      const smin = P ? P.filter(p=>p.type===2||p.type===3||p.type===4).reduce((a,p)=>a+p.mins,0) : sleep.minutes;
+      const deepMin = P ? P.filter(p=>p.type===3).reduce((a,p)=>a+p.mins,0) : (sleep.phases&&sleep.phases.deep||0);
+      const hrs=smin/60;
       let s=Math.max(0,Math.min(100,100-Math.abs(hrs-8)*13));
-      const deepPct=sleep.phases.deep/Math.max(sleep.minutes,1);
+      const deepPct=deepMin/Math.max(smin,1);
       s=Math.max(0,Math.min(100, s + (deepPct>=0.13?6:-8)));
       parts.push([s,0.40]);
       factors.push({label:'Schlaf', value:hrs.toFixed(1)+'h', dir: hrs>=7.5?'up':hrs>=6?'flat':'down',
@@ -1392,10 +1396,14 @@ const Analytics = {
     if(hr.length<12) return null;
     const steps=await db.steps.where('day').equals(day).toArray();
     const activeBlocks=new Set(steps.filter(s=>s.steps>120).map(s=>s.idx)); // 15-Min-Blöcke mit Bewegung
-    // Schlafzeit ausblenden – nur der wache Tag zählt
-    const slp=await db.sleep.get(day);
-    const inSleep = ts => slp && slp.bed && slp.wake && ts>=slp.bed && ts<=slp.wake;
-    const awake = hr.filter(r=>r.bpm>0 && !inSleep(r.ts));
+    // Schlafzeit robust ausblenden – nur der wache Tag zählt.
+    // (Nicht nur heutigen Schlafsatz: die Nacht kann unter „gestern" gespeichert sein.)
+    const end=start+86400000;
+    const allSleep=await db.sleep.toArray();
+    let wakeTs=null;
+    for(const s of allSleep){ if(s.wake && s.wake>=start && s.wake<end) wakeTs=wakeTs?Math.max(wakeTs,s.wake):s.wake; }
+    const inSleep = ts => allSleep.some(s=>s.bed&&s.wake&&ts>=s.bed&&ts<=s.wake);
+    const awake = hr.filter(r=> r.bpm>0 && !inSleep(r.ts) && (wakeTs? r.ts>=wakeTs : true));
     if(awake.length<12) return null;
     // Persönliche TAGES-Baseline: 25%-Perzentil des Wachpulses = entspanntes Wachniveau.
     // (NICHT der Nacht-Ruhepuls – sonst gilt jeder normale Wachpuls fälschlich als „Stress".)
