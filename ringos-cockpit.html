@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v15.1</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v15.2</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -333,6 +333,13 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
 
   <!-- ============ ANALYSE ============ -->
   <section class="view" id="v-analyse">
+    <div class="panel" id="radarPanel" style="border-color:#1e3a4a">
+      <h2>Körper-Radar <span class="badge">24/7 Frühwarnung</span></h2>
+      <div class="score" id="radarLevel" style="color:var(--muted)">–</div>
+      <div id="radarSignals" style="margin:10px 0 4px"></div>
+      <div class="note" id="radarNote">Überlagert Ruhepuls, HRV und SpO₂ gegen deine persönliche Baseline. Wenn mehrere Signale gleichzeitig abweichen, meldet es sich – oft Tage, bevor du etwas spürst. Braucht ein paar Tage Daten zum Kalibrieren.</div>
+      <div class="note" style="color:var(--muted);font-size:10px;margin-top:6px;border-top:1px solid var(--border);padding-top:6px">⚕ Kein Medizinprodukt, keine Diagnose. „Auffällig" heißt beobachten / ärztlich abklären – nicht „krank". Bei Beschwerden immer eine Ärztin/einen Arzt fragen. Der Ring ersetzt keine medizinische Abklärung.</div>
+    </div>
     <div class="panel" id="stressPanel">
       <h2>Stress-Karte heute <span class="badge">Tag</span></h2>
       <div style="display:flex;height:20px;border-radius:6px;overflow:hidden;border:1px solid var(--border)" id="stressBar"></div>
@@ -1270,6 +1277,45 @@ const Analytics = {
     return {level:'ok', reasons:[]};
   },
 
+  /* ===== Körper-Radar: 24/7-Frühwarn-Layer =====
+     Überlagert die 3 Signale, die der Ring WIRKLICH kann (Ruhepuls, HRV, SpO₂),
+     jeweils gegen die persönliche 30-Tage-Baseline. Kippen mehrere gleichzeitig,
+     ist das ein früher, unspezifischer Hinweis (kein Medizinprodukt/keine Diagnose). */
+  async bodyRadar(){
+    const today=(await db.daily.orderBy('day').reverse().limit(1).toArray())[0];
+    if(!today) return null;
+    const bR=await this.baseline(today.day,'rhr');
+    const bH=await this.baseline(today.day,'hrv');
+    const signals=[]; let ready=false;
+    // Ruhepuls – erhöht = auffällig
+    if(today.rhr!=null){
+      if(bR&&bR.n>=4){ ready=true; const z=(today.rhr-bR.mean)/bR.sd;
+        signals.push({key:'Ruhepuls', value:today.rhr+' bpm', base:Math.round(bR.mean)+' bpm',
+          status:z>2?'auffällig':z>1?'leicht':'ok', dir:z>0.5?'up':z<-0.5?'down':'flat', bad:z>1.3});
+      } else signals.push({key:'Ruhepuls', value:today.rhr+' bpm', base:'–', status:'ok', dir:'flat', bad:false, cal:true});
+    }
+    // HRV – gedrückt = auffällig
+    const hrv=today.hrvNative??today.hrv;
+    if(hrv!=null){
+      if(bH&&bH.n>=4){ ready=true; const z=(hrv-bH.mean)/bH.sd;
+        signals.push({key:'HRV', value:''+hrv, base:''+Math.round(bH.mean),
+          status:z<-2?'auffällig':z<-1?'leicht':'ok', dir:z>0.5?'up':z<-0.5?'down':'flat', bad:z<-1.3});
+      } else signals.push({key:'HRV', value:''+hrv, base:'–', status:'ok', dir:'flat', bad:false, cal:true});
+    }
+    // SpO₂ – niedrig/fallend = auffällig
+    const sp=await db.spo2.toArray();
+    if(sp.length){
+      const last=sp.slice().sort((a,b)=>b.ts-a.ts)[0];
+      const avg=sp.reduce((a,s)=>a+s.pct,0)/sp.length;
+      signals.push({key:'SpO₂', value:last.pct+'%', base:Math.round(avg)+'%',
+        status:last.pct<92?'auffällig':last.pct<95?'leicht':'ok', dir:last.pct<avg-2?'down':'flat', bad:last.pct<93});
+    }
+    if(!signals.length) return null;
+    const badCount=signals.filter(s=>s.bad).length;
+    const level = !ready?'kalibriert':badCount>=2?'auffällig':badCount===1?'beobachten':'ruhig';
+    return {signals, level, badCount};
+  },
+
   /* ===== USP 2: Schlaf-Regelmäßigkeit =====
      Forschung: die KONSTANZ von Bett-/Aufwachzeit ist ein stärkerer Gesundheits-
      prädiktor als die reine Dauer. Score aus der Streuung über die letzten 7 Nächte. */
@@ -1914,7 +1960,30 @@ const UI = {
       ? killers.map((k,i)=>`${i+1}. <b>${k.tag}</b>: Ruhepuls-Folgetag +${k.impact.toFixed(1)} bpm <span style="color:var(--muted)">(${k.n}×)</span>`).join('<br>')
       : 'Noch nicht genug Daten. Tagge Events + trag ein paar Nächte, dann siehst du hier dein persönliches Ranking.';
   },
+  async renderBodyRadar(){
+    try{
+      const r=await Analytics.bodyRadar();
+      if(!r){ $('radarLevel').textContent='–'; $('radarSignals').innerHTML=''; return; }
+      const map={auffällig:['Auffällig','var(--rd)'],beobachten:['Beobachten','var(--yl)'],ruhig:['Alles ruhig','var(--gn)'],kalibriert:['Kalibriert…','var(--muted)']};
+      const [lbl,lc]=map[r.level]||['–','var(--muted)'];
+      $('radarLevel').textContent=lbl; $('radarLevel').style.color=lc;
+      $('radarSignals').innerHTML=r.signals.map(s=>{
+        const c = s.status==='auffällig'?'#ff6b74':s.status==='leicht'?'#facc15':'#3ce87d';
+        const arrow = s.dir==='up'?'▲':s.dir==='down'?'▼':'▪';
+        const baseTxt = s.cal?'kalibriert…':'Ø '+s.base+' '+arrow;
+        return `<div class="kv"><span class="k"><span class="ph-dot" style="background:${c}"></span>${s.key}</span><span class="v">${s.value} <span style="color:var(--muted);font-size:11px">(${baseTxt})</span></span></div>`;
+      }).join('');
+      $('radarNote').textContent = r.level==='kalibriert'
+        ? 'RingOS lernt gerade deine persönliche Baseline (ein paar Tage tragen). Danach schlägt das Radar an, wenn Signale davon abweichen.'
+        : r.level==='auffällig'
+        ? r.badCount+' Signale weichen gleichzeitig von deiner Baseline ab. Kann harmlos sein (wenig Schlaf, Alkohol, Infekt im Anmarsch) – oder ein früher Hinweis. Ruhe gönnen; hält es an oder kommen Beschwerden dazu: ärztlich abklären.'
+        : r.level==='beobachten'
+        ? '1 Signal ist auffällig. Meist harmlos – im Auge behalten.'
+        : 'Alle Signale im Normbereich deiner Baseline. 👍';
+    }catch(e){ Dbg.log('err','Körper-Radar: '+e.message); }
+  },
   async renderAnalyse(){
+    await this.renderBodyRadar();
     await this.renderWeekReport();
     const n=+$('trendRange').value;
     const all=(await db.daily.orderBy('day').reverse().limit(n).toArray()).reverse();
