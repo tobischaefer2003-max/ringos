@@ -124,7 +124,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v15.0</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted)">v15.1</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -1785,10 +1785,19 @@ const UI = {
       $('slDeep').textContent=fmtH(deep)+pct(deep);
       $('slRem').textContent=rem>0?fmtH(rem)+pct(rem):'–';
       $('slLight').textContent=fmtH(light)+pct(light);
-      // Echte Aufwacher aus dem Nacht-Puls (Ring meldet oft 0)
-      const hw=await Analytics.detectWakeups(sl.bed, sl.wake);
-      const realWakeups=hw?Math.max(sl.wakeups||0, hw.wakeups):(sl.wakeups||0);
-      const realAwake=hw?Math.max(awake, hw.awakeMin):awake;
+      // Aufwacher: bei NATIVEN Ring-Phasen dem Ring vertrauen – er trennt REM von Wach selbst.
+      // (Die Puls-Heuristik würde den erhöhten REM-Puls fälschlich als „wach" zählen → ~1h zu viel.)
+      // Nur wenn KEINE nativen Phasen da sind, aus dem Puls schätzen.
+      const isNative = sl.src==='native' && sl.periods && sl.periods.length;
+      let realWakeups, realAwake;
+      if(isNative){
+        realWakeups = sl.wakeups||0;
+        realAwake = awake;                          // Summe echter Wach-Perioden (Typ 5)
+      } else {
+        const hw=await Analytics.detectWakeups(sl.bed, sl.wake);
+        realWakeups = hw?Math.max(sl.wakeups||0, hw.wakeups):(sl.wakeups||0);
+        realAwake = hw?Math.max(awake, hw.awakeMin):awake;
+      }
       $('slAwake').textContent=realWakeups+'× wach'+(realAwake>0?' · '+fmtH(realAwake):'');
       $('slWake').textContent=inBed>0?fmtH(inBed)+(eff!=null?' · '+eff+'%':''):((sl.wakeups||0)+'× wach');
       $('slTimes').textContent=fmtT(sl.bed)+' → '+fmtT(sl.wake);
