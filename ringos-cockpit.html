@@ -19,9 +19,9 @@
     --bg:#080b12; --panel:#141a28; --panel2:#1e2740; --border:#2a3453;
     --hair:rgba(23,230,200,.12);
     --text:#d3d9e8; --bright:#ffffff; --muted:#8794b0;
-    --cy:#17e6c8; --gn:#38e87b; --yl:#ffcf3f; --rd:#ff5d6c; --bl:#4d9dff; --pu:#a882ff; --pink:#ff6fd8;
-    --acc-soft:rgba(23,230,200,.13); --acc-line:rgba(23,230,200,.42);
-    --gold:#17e6c8;
+    --cy:#1ff2d4; --cy2:#3ea0ff; --gn:#3bef82; --yl:#ffd23f; --rd:#ff5d6c; --bl:#4d9dff; --pu:#b98bff; --pink:#ff6fd8;
+    --acc-soft:rgba(31,242,212,.14); --acc-line:rgba(31,242,212,.48); --glow-cy:rgba(31,242,212,.6);
+    --gold:#1ff2d4;
     --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,'Helvetica Neue',sans-serif;
     --serif:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
     --mono:'SF Mono','Cascadia Code','JetBrains Mono',Consolas,monospace;
@@ -36,7 +36,7 @@
     border:1px solid var(--border);background:var(--panel);
     padding:12px 16px;border-radius:14px;margin-bottom:14px;flex-wrap:wrap;gap:6px}
   .statusbar .logo{font-weight:800;color:var(--bright);letter-spacing:.16em;font-size:16px}
-  .logo span{color:var(--cy)}
+  .logo span:first-of-type{color:var(--cy);text-shadow:0 0 14px var(--glow-cy)}
   .sb{display:flex;gap:16px;font-size:11px;color:var(--muted);flex-wrap:wrap;font-family:var(--mono)}
   .sb b{color:var(--text);font-weight:500}
   .st-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--rd);margin-right:5px}
@@ -47,9 +47,10 @@
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
   @media(max-width:640px){.grid,.grid3{grid-template-columns:1fr}}
-  .panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px}
+  .panel{background:linear-gradient(180deg,#171e30,#111726);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px}
   .panel h2{font-size:11px;letter-spacing:.15em;color:#9aa6c2;text-transform:uppercase;
-    font-weight:700;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+    font-weight:700;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;
+    border-left:3px solid var(--cy);padding-left:11px;line-height:1.1}
   .panel{position:relative}
   .kv{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:13px;
     border-bottom:1px solid rgba(38,48,74,.4)}
@@ -66,7 +67,9 @@
   .hero{background:linear-gradient(165deg,#1a2338 0%,#0d1220 72%);border:1px solid var(--border);border-radius:22px;padding:30px 20px;
     margin-bottom:14px;text-align:center;position:relative;overflow:hidden}
   .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:1;
-    background:radial-gradient(460px 280px at 50% -12%,var(--glow,rgba(23,230,200,.26)),transparent)}
+    background:radial-gradient(480px 300px at 50% -12%,var(--glow,rgba(31,242,212,.34)),transparent),
+      radial-gradient(320px 240px at 90% 6%,rgba(62,160,255,.20),transparent),
+      radial-gradient(300px 230px at 8% 92%,rgba(185,139,255,.16),transparent)}
   .gauge{position:relative;width:220px;height:220px;margin:6px auto 8px}
   .gauge svg{transform:rotate(-90deg)}
   .gauge .fg{transition:stroke-dashoffset 1.2s cubic-bezier(.34,.02,.16,1), stroke .6s;filter:drop-shadow(0 0 8px currentColor)}
@@ -88,7 +91,8 @@
     border:1px solid var(--border);border-radius:11px;padding:10px 15px;cursor:pointer;transition:.15s;letter-spacing:.02em}
   button:hover{border-color:var(--cy);color:var(--bright)}
   button:active{transform:scale(.97)}
-  button.pri{background:var(--acc-soft);border-color:var(--acc-line);color:var(--cy)}
+  button.pri{background:var(--acc-soft);border-color:var(--acc-line);color:var(--cy);box-shadow:0 0 18px rgba(31,242,212,.16)}
+  button.pri:hover{box-shadow:0 0 22px rgba(31,242,212,.3)}
   button:disabled{opacity:.35;cursor:not-allowed}
   .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   input,select{font-family:var(--mono);font-size:12px;background:var(--panel2);color:var(--text);
@@ -119,7 +123,7 @@
   .navin{max-width:880px;margin:0 auto;display:flex;padding:0 4px}
   .tab{flex:1;background:none;border:none;border-radius:0;padding:14px 2px 16px;color:var(--muted);
     font-size:10px;letter-spacing:.12em;font-weight:600;transition:.18s;border-top:2px solid transparent}
-  .tab.on{color:var(--cy);border-top-color:var(--cy)}
+  .tab.on{color:var(--cy);border-top-color:var(--cy);text-shadow:0 0 10px var(--glow-cy)}
   .view{display:none}.view.on{display:block}
   .statusline{font-size:11px;color:var(--cy);min-height:15px;margin-top:8px;font-family:var(--mono)}
 </style>
@@ -127,7 +131,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.1</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.2</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
