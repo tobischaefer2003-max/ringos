@@ -16,13 +16,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   :root{
-    --bg:#06070a; --panel:#101119; --panel2:#181a24; --border:#242636;
-    --hair:rgba(217,184,120,.10);
-    --text:#c7c9d4; --bright:#f6f2e8; --muted:#83879a;
-    --cy:#d9b878; --gn:#4ecb8a; --yl:#e8c15a; --rd:#f2686f; --bl:#6ba3e8; --pu:#b79aff; --pink:#ff6fd8;
-    --gold:#d9b878; --gold-2:#f0d9a3; --gold-soft:rgba(217,184,120,.13); --gold-line:rgba(217,184,120,.40);
+    --bg:#080b12; --panel:#141a28; --panel2:#1e2740; --border:#2a3453;
+    --hair:rgba(23,230,200,.12);
+    --text:#d3d9e8; --bright:#ffffff; --muted:#8794b0;
+    --cy:#17e6c8; --gn:#38e87b; --yl:#ffcf3f; --rd:#ff5d6c; --bl:#4d9dff; --pu:#a882ff; --pink:#ff6fd8;
+    --acc-soft:rgba(23,230,200,.13); --acc-line:rgba(23,230,200,.42);
+    --gold:#17e6c8;
     --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,'Helvetica Neue',sans-serif;
-    --serif:ui-serif,Georgia,'Times New Roman',serif;
+    --serif:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
     --mono:'SF Mono','Cascadia Code','JetBrains Mono',Consolas,monospace;
   }
   *{margin:0;padding:0;box-sizing:border-box}
@@ -34,8 +35,8 @@
   .statusbar{display:flex;justify-content:space-between;align-items:center;
     border:1px solid var(--border);background:var(--panel);
     padding:12px 16px;border-radius:14px;margin-bottom:14px;flex-wrap:wrap;gap:6px}
-  .statusbar .logo{font-family:var(--serif);font-weight:600;color:var(--bright);letter-spacing:.03em;font-size:19px}
-  .logo span{color:var(--gold);font-style:italic}
+  .statusbar .logo{font-weight:800;color:var(--bright);letter-spacing:.16em;font-size:16px}
+  .logo span{color:var(--cy)}
   .sb{display:flex;gap:16px;font-size:11px;color:var(--muted);flex-wrap:wrap;font-family:var(--mono)}
   .sb b{color:var(--text);font-weight:500}
   .st-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--rd);margin-right:5px}
@@ -47,8 +48,8 @@
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
   @media(max-width:640px){.grid,.grid3{grid-template-columns:1fr}}
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px}
-  .panel h2{font-size:10.5px;letter-spacing:.24em;color:#9296a6;text-transform:uppercase;
-    font-weight:600;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+  .panel h2{font-size:11px;letter-spacing:.15em;color:#9aa6c2;text-transform:uppercase;
+    font-weight:700;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
   .panel{position:relative}
   .kv{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:13px;
     border-bottom:1px solid rgba(38,48,74,.4)}
@@ -62,17 +63,17 @@
   .unit{color:var(--muted);font-size:12px}
 
   /* Recovery-Hero */
-  .hero{background:linear-gradient(165deg,#15161f 0%,#0a0b10 70%);border:1px solid var(--border);border-radius:22px;padding:32px 22px;
-    margin-bottom:14px;text-align:center;position:relative;overflow:hidden;box-shadow:inset 0 1px 0 var(--hair)}
-  .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.9;
-    background:radial-gradient(440px 260px at 50% -15%,var(--glow,rgba(217,184,120,.20)),transparent)}
+  .hero{background:linear-gradient(165deg,#1a2338 0%,#0d1220 72%);border:1px solid var(--border);border-radius:22px;padding:30px 20px;
+    margin-bottom:14px;text-align:center;position:relative;overflow:hidden}
+  .hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:1;
+    background:radial-gradient(460px 280px at 50% -12%,var(--glow,rgba(23,230,200,.26)),transparent)}
   .gauge{position:relative;width:220px;height:220px;margin:6px auto 8px}
   .gauge svg{transform:rotate(-90deg)}
   .gauge .fg{transition:stroke-dashoffset 1.2s cubic-bezier(.34,.02,.16,1), stroke .6s;filter:drop-shadow(0 0 8px currentColor)}
   .gauge .ctr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-  .gauge .num{font-size:74px;font-weight:300;line-height:1;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+  .gauge .num{font-size:76px;font-weight:800;line-height:1;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
   .gauge .pct{font-size:11px;color:var(--muted);letter-spacing:.3em;margin-top:2px;font-weight:600}
-  .hero .verdict{font-family:var(--serif);font-size:21px;font-weight:500;margin-top:10px;letter-spacing:.005em}
+  .hero .verdict{font-size:20px;font-weight:800;margin-top:8px;letter-spacing:.01em}
   .hero .advice{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.6;max-width:440px;margin-left:auto;margin-right:auto}
   .factors{display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap}
   .factor{background:rgba(38,48,74,.4);border:1px solid var(--border);border-radius:14px;padding:10px 14px;min-width:100px}
@@ -87,14 +88,14 @@
     border:1px solid var(--border);border-radius:11px;padding:10px 15px;cursor:pointer;transition:.15s;letter-spacing:.02em}
   button:hover{border-color:var(--cy);color:var(--bright)}
   button:active{transform:scale(.97)}
-  button.pri{background:var(--gold-soft);border-color:var(--gold-line);color:var(--gold)}
+  button.pri{background:var(--acc-soft);border-color:var(--acc-line);color:var(--cy)}
   button:disabled{opacity:.35;cursor:not-allowed}
   .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   input,select{font-family:var(--mono);font-size:12px;background:var(--panel2);color:var(--text);
     border:1px solid var(--border);border-radius:4px;padding:8px;color-scheme:dark}
   input:focus{outline:none;border-color:var(--cy)}
 
-  .score{font-size:54px;font-weight:300;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .score{font-size:56px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
   .formula{background:rgba(10,14,22,.6);border:1px solid var(--border);border-radius:12px;padding:12px;
     font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:10px;line-height:1.7;white-space:pre-wrap}
   .tagbtns{display:flex;gap:8px;flex-wrap:wrap}
@@ -126,7 +127,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.0</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.1</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -1679,7 +1680,7 @@ const UI = {
   initLiveChart(){
     if(Live.chart) return;
     Live.chart=new Chart($('chLive'),{type:'line',
-      data:{labels:[],datasets:[{data:[],borderColor:'#d9b878',borderWidth:2,pointRadius:0,tension:.3,fill:{target:'origin'},backgroundColor:'rgba(217,184,120,.09)'}]},
+      data:{labels:[],datasets:[{data:[],borderColor:'#17e6c8',borderWidth:2,pointRadius:0,tension:.3,fill:{target:'origin'},backgroundColor:'rgba(23,230,200,.10)'}]},
       options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},
         scales:{x:{display:false},y:{grid:{color:'#1a2230'},ticks:{color:'#5a6678'}}}}});
   },
@@ -1885,7 +1886,7 @@ const UI = {
     const data=rows.map(r=>({x:(r.ts-start)/3600000, y:r.bpm}));
     if(this.charts.day) this.charts.day.destroy();
     this.charts.day=new Chart($('chDay'),{type:'scatter',
-      data:{datasets:[{data,pointRadius:1.5,pointBackgroundColor:'#d9b878',showLine:true,borderColor:'rgba(217,184,120,.4)',borderWidth:1}]},
+      data:{datasets:[{data,pointRadius:1.5,pointBackgroundColor:'#17e6c8',showLine:true,borderColor:'rgba(23,230,200,.4)',borderWidth:1}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
         scales:{x:{min:0,max:24,grid:{color:'#1a2230'},ticks:{color:'#5a6678',callback:v=>v+'h'}},
                 y:{grid:{color:'#1a2230'},ticks:{color:'#5a6678'}}}}});
