@@ -131,7 +131,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.2</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.3</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -1383,21 +1383,24 @@ const Analytics = {
      Startwert = Erholungs-Score. Aus dem heutigen 5-Min-HR-Log berechnet. */
   async bodyBattery(){
     const day=dayKey();
-    const start=new Date(day+'T00:00:00').getTime();
-    const rows=(await db.hr.where('ts').between(start-6*3600000,start+86400000).toArray()).sort((a,b)=>a.ts-b.ts);
-    if(rows.length<6) return null;
-    const rhrB=await this.baseline(day,'rhr'); const rest=rhrB?rhrB.mean:Math.min(...rows.map(r=>r.bpm));
+    const start=new Date(day+'T00:00:00').getTime(), end=start+86400000;
+    // ANKER: Beim Aufwachen = Erholungs-Score des Morgens. Danach NUR den wachen Tag
+    // entladen/laden. (Vorher wurde die ganze Nacht durchsimuliert → morgens zu niedrig.)
     const d=await db.daily.get(day);
-    let e = d&&d.readiness!=null ? d.readiness : 65;    // Start = Erholung
+    let e = d&&d.readiness!=null ? d.readiness : 65;
+    const sl=await db.sleep.get(day);
+    let fromTs=start;
+    if(sl && sl.wake && sl.wake>=start && sl.wake<end) fromTs=sl.wake;   // ab heutigem Aufwachen
+    const rows=(await db.hr.where('ts').between(fromTs,end).toArray()).sort((a,b)=>a.ts-b.ts);
+    if(rows.length<3) return {now:Math.round(e), trend:0, series:[{t:fromTs,e:Math.round(e)}]};
+    const rhrB=await this.baseline(day,'rhr'); const rest=rhrB?rhrB.mean:Math.min(...rows.map(r=>r.bpm));
     const series=[];
-    /* Sanftes Modell: Ruhe lädt, leichte Aktivität kostet fast nichts,
-       nur echte Anstrengung (deutlich über Ruhepuls) entlädt spürbar. */
     for(const r of rows){
       const over=r.bpm-rest;
-      if(over<12) e += 0.8;                             // Ruhe/Schlaf → laden
-      else if(over<40) e -= 0.05;                       // Alltag → kaum Verbrauch
-      else e -= (over-40)*0.035 + 0.15;                 // echte Belastung → spürbar
-      e=Math.max(5,Math.min(100,e));                    // nie ganz auf 0
+      if(over<10) e += 0.5;                             // Ruhe/Nap → leicht aufladen
+      else if(over<35) e -= 0.12;                       // wacher Alltag → langsam verbrauchen
+      else e -= (over-35)*0.03 + 0.2;                   // Anstrengung/Stress → spürbar
+      e=Math.max(5,Math.min(100,e));
       series.push({t:r.ts, e:Math.round(e)});
     }
     const now=series[series.length-1].e;
