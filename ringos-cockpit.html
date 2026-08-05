@@ -131,7 +131,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.3</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.5</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -169,6 +169,10 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
       </details>
     </div>
     <span id="rdScore" style="display:none"></span><span id="rdLabel" style="display:none"></span>
+    <div class="panel" id="coachPanel" style="border-color:var(--acc-line);background:linear-gradient(135deg,rgba(23,230,200,.07),rgba(62,160,255,.05))">
+      <h2>Dein Coach heute <span class="badge">Empfehlungen</span></h2>
+      <div id="coachList"><div class="note">Sobald deine Werte da sind (Ring verbinden + syncen), bekommst du hier konkrete Tipps für Lernen, Training und Schlaf.</div></div>
+    </div>
     <div class="panel" id="focusPanel" style="background:linear-gradient(135deg,rgba(34,227,196,.09),rgba(168,130,255,.07));border-color:#2f3a58">
       <h2>Fokus &amp; Lern-Bereitschaft <span class="badge">Coach</span></h2>
       <div style="display:flex;align-items:center;gap:16px">
@@ -196,15 +200,7 @@ Keine Blackbox – reines, nachvollziehbares Rechnen auf deinen eigenen Daten.</
         <div class="note" id="sleepCoachNote">Empfohlene Schlafdauer steigt mit deiner Belastung (Strain) und sinkt bei guter Erholung.</div>
       </div>
     </div>
-    <div class="grid">
-      <div class="panel">
-        <h2>Body Battery <span class="badge">Energie</span></h2>
-        <div style="display:flex;align-items:baseline;gap:8px"><span class="big" id="bbNow" style="font-size:38px">–</span><span class="unit">/ 100 <span id="bbTrend"></span></span></div>
-        <div style="height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;margin:8px 0">
-          <div id="bbBar" style="height:100%;width:0;background:var(--gn);transition:width .8s"></div>
-        </div>
-        <div class="note" id="bbNote">Dein Energie-Akku: lädt bei Ruhe/Schlaf, entlädt bei Belastung. Aus dem heutigen Puls-Verlauf.</div>
-      </div>
+    <div>
       <div class="panel">
         <h2>Fitness (VO2max) <span class="badge">USP</span></h2>
         <div style="display:flex;align-items:baseline;gap:8px"><span class="big" id="vo2" style="font-size:38px">–</span><span class="unit">ml/kg/min</span></div>
@@ -1323,6 +1319,46 @@ const Analytics = {
     return {signals, level, badCount};
   },
 
+  /* ===== Coach: konkrete Empfehlungen aus den verlässlichen Werten =====
+     Bündelt Erholung, Schlaf, HRV-Trend, Stress und Frühwarnung zu Klartext-Tipps
+     für Lernen, Training und Schlaf. Priorität: go (grün) / ok (gelb) / rest (rot). */
+  async coachTips(){
+    const day=dayKey();
+    let d=await db.daily.get(day)||{};
+    let rec=d.readiness;
+    if(rec==null){ const all=await db.sleep.orderBy('day').toArray(); const ls=all[all.length-1];
+      if(ls){ const dd=await db.daily.get(ls.day); if(dd&&dd.readiness!=null){ rec=dd.readiness; d=dd; } } }
+    const tips=[];
+    if(rec!=null){
+      if(rec>=67) tips.push({p:'go',t:'Stark erholt ('+rec+' %) – idealer Tag für den schwersten Stoff oder ein intensives Training. Nutz den Vormittag, wenn dein Kopf am frischesten ist.'});
+      else if(rec>=45) tips.push({p:'ok',t:'Mittel erholt ('+rec+' %) – solide, aber nicht auf 100 %. Lern in Blöcken (ca. 50 Min + Pause), das Schwierigste zuerst. Training moderat, keinen Rekord jagen.'});
+      else tips.push({p:'rest',t:'Wenig erholt ('+rec+' %) – heute leichterer Stoff, kürzere Einheiten, kein hartes Training. Wichtigste Aufgabe: früh ins Bett.'});
+    }
+    // Schlaf
+    let sl=await db.sleep.get(day); if(!sl){ const a=await db.sleep.orderBy('day').toArray(); sl=a[a.length-1]; }
+    if(sl){ const P=sl.periods&&sl.periods.length?sl.periods:null;
+      const mins=P?P.filter(p=>p.type===2||p.type===3||p.type===4).reduce((a,p)=>a+p.mins,0):(sl.minutes||0);
+      const h=mins/60;
+      if(h>0&&h<6.5) tips.push({p:'rest',t:'Letzte Nacht nur '+h.toFixed(1)+' h – das holt dich nachmittags ein. Heute vor 23:00 ins Bett und 30–60 Min drauflegen.'});
+      else if(h>=7.5) tips.push({p:'go',t:h.toFixed(1)+' h geschlafen – top Basis. Konstante Bett-/Aufwachzeiten halten den Effekt.'});
+    }
+    // HRV-Trend
+    try{ const tr=await this.hrvTrend();
+      if(tr&&tr.dir==='down') tips.push({p:'ok',t:'HRV fällt gerade – dein Nervensystem trägt Last (viel Lernen/Stress). Plan alle ~50 Min eine echte Pause ein: aufstehen, Fenster auf, kurz bewegen.'});
+      else if(tr&&tr.dir==='up') tips.push({p:'go',t:'HRV steigt – gutes Zeichen, dein Körper erholt sich. Gute Phase, um Fokus und Belastung etwas hochzufahren.'});
+    }catch(e){}
+    // Stress-Peak
+    try{ const sm=await this.stressMap();
+      if(sm&&sm.stress>60&&sm.peakHour!=null) tips.push({p:'ok',t:'Meiste Anspannung heute um '+sm.peakHour+':00 Uhr. Leg genau dann bewusst eine Pause ein – Spaziergang, Atmen, kurz weg vom Schreibtisch.'});
+    }catch(e){}
+    // Frühwarnung
+    try{ const w=await this.illnessWarning();
+      if(w&&w.level==='hoch') tips.push({p:'rest',t:'Ruhepuls/HRV sind über mehrere Tage auffällig – oft ein Frühzeichen für Infekt/Übertraining. Heute runterfahren, viel trinken, früh schlafen. Bei Beschwerden ärztlich abklären.'});
+    }catch(e){}
+    if(!tips.length) tips.push({p:'ok',t:'Trag den Ring ein paar Tage – dann gibt dir der Coach hier konkrete Tipps für Lernen, Training und Schlaf, abgestimmt auf deine Werte.'});
+    return tips;
+  },
+
   /* ===== USP 2: Schlaf-Regelmäßigkeit =====
      Forschung: die KONSTANZ von Bett-/Aufwachzeit ist ein stärkerer Gesundheits-
      prädiktor als die reine Dauer. Score aus der Streuung über die letzten 7 Nächte. */
@@ -1691,7 +1727,18 @@ const UI = {
       options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},
         scales:{x:{display:false},y:{grid:{color:'#1a2230'},ticks:{color:'#5a6678'}}}}});
   },
+  async renderCoach(){
+    try{
+      const tips=await Analytics.coachTips();
+      const col={go:'#38e87b',ok:'#ffcf3f',rest:'#ff5d6c'};
+      $('coachList').innerHTML = tips.map(t=>
+        '<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(38,48,74,.4);font-size:13px;line-height:1.55;color:var(--text)">'+
+        '<span style="width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;background:'+(col[t.p]||'#8794b0')+'"></span>'+
+        '<span>'+t.t+'</span></div>').join('');
+    }catch(e){ Dbg.log('err','Coach: '+e.message); }
+  },
   async renderCockpit(){
+    this.renderCoach();
     const day=dayKey(), d=await db.daily.get(day)||{};
     $('cockpitDate').textContent=day;
     // ---- USP: Krankheits-/Übertraining-Frühwarnung ----
@@ -1788,18 +1835,6 @@ const UI = {
     $('sleepCoachNote').textContent = rec!=null&&rec<40
       ? 'Du bist wenig erholt – +30 Min extra empfohlen. Früh ins Bett hilft dem Score morgen.'
       : 'Empfehlung steigt mit deiner Belastung, damit du morgen wieder voll erholt bist.';
-    // ---- Body Battery ---- (gekapselt, darf nichts anderes blockieren)
-    try{
-    const bb=await Analytics.bodyBattery();
-    if(bb){
-      $('bbNow').textContent=bb.now;
-      $('bbNow').style.color=bb.now>=60?'var(--gn)':bb.now>=30?'var(--yl)':'var(--rd)';
-      $('bbBar').style.width=bb.now+'%';
-      $('bbBar').style.background=bb.now>=60?'var(--gn)':bb.now>=30?'var(--yl)':'var(--rd)';
-      $('bbTrend').textContent=bb.trend>2?'↑ lädt':bb.trend<-2?'↓ entlädt':'→ stabil';
-      $('bbNote').textContent=bb.now>=60?'Gut geladen – du hast Energie für den Tag.':bb.now>=30?'Halbvoll – teil dir die Kräfte ein.':'Fast leer – Zeit für Pause/Schlaf zum Aufladen.';
-    } else { $('bbNow').textContent='–'; }
-    }catch(e){ Dbg.log('err','Body-Battery-Fehler: '+e.message); $('bbNow').textContent='–'; }
     // ---- Fitness / VO2max ---- (gekapselt)
     try{
     if($('ageInput')&&settings.age) $('ageInput').value=settings.age;
