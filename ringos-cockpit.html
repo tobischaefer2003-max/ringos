@@ -131,7 +131,7 @@
 <body>
 <div class="app">
   <div class="statusbar">
-    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.5</span></div>
+    <div class="logo">RING<span>OS</span> <span style="font-size:10px;color:var(--muted);font-style:normal;font-family:var(--mono)">v16.6</span></div>
     <div class="sb">
       <span><span class="st-dot" id="stDot"></span><b id="stState">DISCONNECTED</b></span>
       <span>BAT <b id="stBat">--%</b></span>
@@ -1890,7 +1890,10 @@ const UI = {
         realAwake = hw?Math.max(awake, hw.awakeMin):awake;
       }
       $('slAwake').textContent=realWakeups+'× wach'+(realAwake>0?' · '+fmtH(realAwake):'');
-      $('slWake').textContent=inBed>0?fmtH(inBed)+(eff!=null?' · '+eff+'%':''):((sl.wakeups||0)+'× wach');
+      if(inBed>0 && eff!=null){
+        const er = eff>=88?['sehr gut','var(--gn)']:eff>=82?['gut','var(--gn)']:eff>=72?['okay','var(--yl)']:['unruhig','var(--rd)'];
+        $('slWake').innerHTML=fmtH(inBed)+' · <span style="color:'+er[1]+'">'+eff+'% '+er[0]+'</span>';
+      } else $('slWake').textContent=inBed>0?fmtH(inBed):((sl.wakeups||0)+'× wach');
       $('slTimes').textContent=fmtT(sl.bed)+' → '+fmtT(sl.wake);
       sl.minutes=asleep;   // für die Zusammenfassung unten
       const q=sl.minutes>=420?'Gut ausgeschlafen':sl.minutes>=360?'Solide Nacht':sl.minutes>=270?'Etwas kurz':'Wenig Schlaf';
